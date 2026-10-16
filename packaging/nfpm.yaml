@@ -1,0 +1,85 @@
+name: zulip-tray
+# Pure Python on top of distro-provided GTK/GI libraries: one package for
+# every supported Debian/Ubuntu release.
+arch: all
+platform: linux
+version: ${PKG_VERSION}
+release: "1"
+section: net
+priority: optional
+maintainer: Robert Tulke <rt@debian.sh>
+description: |
+  Zulip system tray notifier for GNOME.
+  Per-user GNOME system-tray client for a Zulip server. Shows connection
+  state and your own presence (active/idle/offline/invisible) as a coloured
+  tray icon, sends desktop notifications for new messages according to
+  your Zulip notification settings, and lets you set your status from the
+  tray. Signs in through the server's OpenID Connect provider.
+vendor: Robert Tulke
+homepage: https://github.com/rtulke/zulip-tray/
+license: MIT
+
+depends:
+  - python3 (>= 3.11)
+  - python3-gi
+  - python3-requests
+  - gir1.2-gtk-3.0
+  - gir1.2-ayatanaappindicator3-0.1
+  - gir1.2-notify-0.7
+  - gir1.2-secret-1
+  # update-desktop-database (registers the zulip:// scheme handler)
+  - desktop-file-utils
+  # gapplication (postinstall restart broadcast)
+  - libglib2.0-bin
+  # paplay (notification sound; works with PipeWire's PulseAudio layer too)
+  - pulseaudio-utils
+
+recommends:
+  - gnome-shell-extension-appindicator
+  - gnome-keyring
+  # Chromium app-window reuse in "dedicated browser window" mode
+  - python3-websocket
+
+contents:
+  # Staged by packaging/build-local.sh / CI (source tree minus __pycache__).
+  - src: ./stage/zulip_tray
+    dst: /usr/lib/python3/dist-packages/zulip_tray
+    type: tree
+
+  - src: ./packaging/zulip-tray
+    dst: /usr/bin/zulip-tray
+    file_info:
+      mode: 0755
+
+  # Testing helper: `zulip-tray-send user,#channel "text" --topic t`, uses
+  # the same server config and keyring credentials as the tray app.
+  - src: ./packaging/zulip-tray-send
+    dst: /usr/bin/zulip-tray-send
+    file_info:
+      mode: 0755
+
+  - src: ./packaging/autostart.desktop
+    dst: /etc/xdg/autostart/zulip-tray.desktop
+
+  # Named after the GApplication id so GNOME matches windows and
+  # notifications to it; also registers the zulip:// URL scheme handler
+  # the OIDC sign-in relies on.
+  - src: ./packaging/io.github.rtulke.ZulipTray.desktop
+    dst: /usr/share/applications/io.github.rtulke.ZulipTray.desktop
+
+  - src: ./packaging/icons/zulip-tray.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/zulip-tray.svg
+
+  - src: ./packaging/config.conf.example
+    dst: /etc/zulip-tray/config.conf
+    type: config|noreplace
+
+  - src: ./LICENSE
+    dst: /usr/share/doc/zulip-tray/LICENSE
+
+  - src: ./README.md
+    dst: /usr/share/doc/zulip-tray/README.md
+
+scripts:
+  postinstall: ./packaging/postinstall.sh
+  preremove: ./packaging/preremove.sh

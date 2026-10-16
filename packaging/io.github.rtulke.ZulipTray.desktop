@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Zulip Tray
+Exec=/usr/bin/zulip-tray %u
+Icon=zulip-tray
+Comment=Zulip notification tray icon
+Categories=Network;InstantMessaging;
+Terminal=false
+StartupNotify=false
+MimeType=x-scheme-handler/zulip;

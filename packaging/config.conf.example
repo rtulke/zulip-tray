@@ -1,0 +1,13 @@
+# Zulip Tray -- admin-managed server configuration.
+# This file is a dpkg conffile: your edits survive package upgrades.
+#
+# Users can override the server from the app's own Settings dialog, which
+# takes precedence once set (stored per-user in
+# ~/.config/zulip-tray/settings.json) -- this file is only the fleet-wide
+# default for users who haven't set their own.
+[server]
+url = https://REPLACE-ME.example.com
+verify_ssl = true
+# Prefills the sign-in dialog's e-mail field with <os-user>@<email_domain>.
+# Zulip identifies accounts by e-mail; leave empty for no prefill.
+email_domain =

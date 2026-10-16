@@ -1,0 +1,339 @@
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from enum import Enum, auto
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("AyatanaAppIndicator3", "0.1")
+from gi.repository import AyatanaAppIndicator3 as AppIndicator, GLib, Gtk  # noqa: E402
+
+from .config import STATUS_OPTIONS
+from .i18n import tr
+from .notifications import Notification
+from .resources import ICON_DIR, icon_name
+
+logger = logging.getLogger(__name__)
+
+BLINK_INTERVAL_MS = 600
+INDICATOR_ID = "zulip-tray"
+
+STATUS_LABEL_KEYS = {
+    "auto": "tray.status_auto",
+    "online": "tray.status_online",
+    "away": "tray.status_away",
+    "invisible": "tray.status_invisible",
+}
+
+
+class ConnectionState(Enum):
+    DISCONNECTED = auto()
+    CONNECTING = auto()
+    CONNECTED = auto()
+    AUTH_ERROR = auto()
+
+
+@dataclass
+class _Unread:
+    label: str
+    fragment: str
+    message_ids: set[int] = field(default_factory=set)
+
+
+def _defer(fn, *args) -> None:
+    """Run fn on the next main-loop iteration instead of inline from the
+    menu item's activate handler: tray menus go through DBusMenu, and
+    gnome-shell keeps the busy cursor until the click round-trip is
+    acknowledged, which only happens once our handler returns."""
+    GLib.idle_add(lambda: (fn(*args), False)[1])
+
+
+class TrayController:
+    """Owns the AppIndicator (StatusNotifierItem over D-Bus, rendered by
+    GNOME's AppIndicator extension) and its menu. Icon colour = own
+    presence as the server sees it; a red badge blinks while there are
+    unread notifications; the "missed messages" submenu lists them per
+    conversation and jumps into that conversation in the web client."""
+
+    def __init__(
+        self, settings, on_open_chat, on_open_conversation, on_open_settings, on_reenter_login,
+        on_set_status, on_set_status_message, on_show_about, on_quit,
+    ):
+        self._settings = settings
+        self._on_open_chat = on_open_chat
+        self._on_open_conversation = on_open_conversation  # (fragment)
+        self._on_set_status = on_set_status
+        self._on_set_status_message = on_set_status_message
+        self._state = ConnectionState.DISCONNECTED
+        self._presence_status = "offline"
+        self._unread: dict[str, _Unread] = {}  # conversation key -> entry, insertion-ordered
+        self._blink_visible = False
+        self._blink_timer: int | None = None
+        self._email = ""
+        self._updating_menu = False
+
+        self._indicator = AppIndicator.Indicator.new(
+            INDICATOR_ID, icon_name("offline"), AppIndicator.IndicatorCategory.APPLICATION_STATUS,
+        )
+        # Our status icons live inside the Python package, not in the
+        # system icon theme -- point the indicator's own theme path there.
+        self._indicator.set_icon_theme_path(str(ICON_DIR))
+        self._indicator.set_status(AppIndicator.IndicatorStatus.ACTIVE)
+
+        menu = Gtk.Menu()
+        self._status_item = Gtk.MenuItem(label=tr("tray.disconnected"))
+        self._status_item.set_sensitive(False)
+        menu.append(self._status_item)
+
+        self._missed_item = Gtk.MenuItem(label=tr("tray.missed_messages_submenu"))
+        self._missed_menu = Gtk.Menu()
+        self._missed_item.set_submenu(self._missed_menu)
+        menu.append(self._missed_item)
+
+        open_chat_item = Gtk.MenuItem(label=tr("tray.open_chat"))
+        open_chat_item.connect("activate", lambda *_: _defer(self._handle_open_chat))
+        menu.append(open_chat_item)
+
+        status_item = Gtk.MenuItem(label=tr("tray.status_submenu"))
+        status_item.set_submenu(self._build_status_menu(settings.forced_status))
+        menu.append(status_item)
+
+        menu.append(Gtk.SeparatorMenuItem())
+        about_item = Gtk.MenuItem(label=tr("tray.about_action"))
+        about_item.connect("activate", lambda *_: _defer(on_show_about))
+        menu.append(about_item)
+        status_message_item = Gtk.MenuItem(label=tr("tray.status_message_action"))
+        status_message_item.connect("activate", lambda *_: _defer(self._handle_set_status_message))
+        menu.append(status_message_item)
+
+        menu.append(Gtk.SeparatorMenuItem())
+        settings_item = Gtk.MenuItem(label=tr("tray.settings_action"))
+        settings_item.connect("activate", lambda *_: _defer(on_open_settings))
+        menu.append(settings_item)
+        self._reenter_login_item = Gtk.MenuItem(label=tr("tray.reenter_login_action"))
+        self._reenter_login_item.connect("activate", lambda *_: _defer(on_reenter_login))
+        menu.append(self._reenter_login_item)
+
+        menu.append(Gtk.SeparatorMenuItem())
+        quit_item = Gtk.MenuItem(label=tr("tray.quit_action"))
+        quit_item.connect("activate", lambda *_: _defer(on_quit))
+        menu.append(quit_item)
+
+        menu.show_all()
+        self._missed_item.hide()
+        self._reenter_login_item.hide()
+        self._indicator.set_menu(menu)
+        self._menu = menu  # keep a reference alive
+        # Middle click on the indicator: direct "open chat" shortcut where
+        # the host renders one (GNOME's extension opens the menu on any click).
+        self._indicator.set_secondary_activate_target(open_chat_item)
+
+        self._update_status_text(tr("tray.disconnected"))
+
+    def _build_status_menu(self, current_status: str) -> Gtk.Menu:
+        menu = Gtk.Menu()
+        self._status_items: dict[str, Gtk.RadioMenuItem] = {}
+        group_item: Gtk.RadioMenuItem | None = None
+        for value in STATUS_OPTIONS:
+            item = Gtk.RadioMenuItem(label=tr(STATUS_LABEL_KEYS[value]), group=group_item)
+            group_item = group_item or item
+            item.set_active(value == current_status)
+            item.connect("toggled", self._handle_status_toggled, value)
+            self._status_items[value] = item
+            menu.append(item)
+        return menu
+
+    def _handle_status_toggled(self, item: Gtk.RadioMenuItem, value: str) -> None:
+        if self._updating_menu or not item.get_active():
+            return
+        _defer(self._on_set_status, value)
+
+    def set_forced_status(self, status: str) -> None:
+        """Reflect a status change that didn't come through this menu
+        (e.g. invisible mode toggled in the web client)."""
+        item = self._status_items.get(status)
+        if item is None or item.get_active():
+            return
+        self._updating_menu = True
+        try:
+            item.set_active(True)
+        finally:
+            self._updating_menu = False
+
+    def _handle_set_status_message(self) -> None:
+        dialog = _StatusMessageDialog(self._settings.status_message)
+        dialog.connect("response", self._handle_status_message_response)
+        dialog.show()
+
+    def _handle_status_message_response(self, dialog: "_StatusMessageDialog", response_id: int) -> None:
+        if response_id == Gtk.ResponseType.OK:
+            self._on_set_status_message(dialog.text())
+        dialog.destroy()
+
+    # --- connection state ---------------------------------------------------
+
+    def set_connecting(self) -> None:
+        self._state = ConnectionState.CONNECTING
+        self._reenter_login_item.hide()
+        self._stop_blink()
+        self._update_status_text(tr("tray.connecting"))
+
+    def set_connected(self, state) -> None:
+        self._state = ConnectionState.CONNECTED
+        self._email = state.email
+        self._reenter_login_item.hide()
+        self._refresh_unread_display()
+
+    def set_disconnected(self, _reason: str = "") -> None:
+        self._state = ConnectionState.DISCONNECTED
+        self._stop_blink()
+        self._update_status_text(tr("tray.disconnected_retrying"))
+
+    def set_reconnect_scheduled(self, seconds: float) -> None:
+        if self._state != ConnectionState.AUTH_ERROR:
+            self._update_status_text(tr("tray.reconnect_in", seconds=f"{seconds:.0f}"))
+
+    def set_auth_error(self, _message: str = "") -> None:
+        self._state = ConnectionState.AUTH_ERROR
+        self._stop_blink()
+        self._reenter_login_item.show()
+        self._update_status_text(tr("tray.auth_error"))
+
+    def set_presence_status(self, status: str) -> None:
+        """Icon colour from the server-confirmed presence (online/away/
+        offline/invisible), see presence.PresenceCoordinator."""
+        self._presence_status = status
+        self._refresh_icon()
+
+    # --- unread / blink -------------------------------------------------------
+
+    def notify_unread(self, notification: Notification) -> None:
+        conversation = notification.conversation
+        entry = self._unread.setdefault(conversation.key, _Unread(conversation.label, conversation.fragment))
+        entry.label = conversation.label
+        entry.message_ids.add(notification.message_id)
+        self._refresh_unread_display()
+        self._refresh_missed_menu()
+
+    def messages_read(self, message_ids: list[int] | None) -> None:
+        """update_message_flags "read" from the server: the user read
+        those messages elsewhere (web/mobile), so drop them from the missed
+        list -- None means "everything"."""
+        if message_ids is None:
+            self._unread.clear()
+        else:
+            read = set(message_ids)
+            for key, entry in list(self._unread.items()):
+                entry.message_ids -= read
+                if not entry.message_ids:
+                    del self._unread[key]
+        self._refresh_unread_display()
+        self._refresh_missed_menu()
+
+    def clear_unread(self, key: str) -> None:
+        self._unread.pop(key, None)
+        self._refresh_unread_display()
+        self._refresh_missed_menu()
+
+    def clear_all_unread(self) -> None:
+        self._unread.clear()
+        self._refresh_unread_display()
+        self._refresh_missed_menu()
+
+    def handle_conversation_click(self, key: str) -> None:
+        """Opens the conversation in the web client, clearing its unread
+        state first. Used by the missed-messages submenu and, from
+        main.py, as the desktop-notification click handler."""
+        entry = self._unread.get(key)
+        fragment = entry.fragment if entry else None
+        self.clear_unread(key)
+        self._on_open_conversation(fragment)
+
+    def _refresh_unread_display(self) -> None:
+        if self._state != ConnectionState.CONNECTED:
+            return
+        if self._unread and self._settings.blink_enabled:
+            self._start_blink()
+        else:
+            self._stop_blink()
+        if self._unread:
+            self._update_status_text(tr("tray.connected_unread", count=len(self._unread)))
+        else:
+            self._update_status_text(tr("tray.connected_as", username=self._email))
+
+    def _refresh_missed_menu(self) -> None:
+        for child in self._missed_menu.get_children():
+            self._missed_menu.remove(child)
+        for key, entry in self._unread.items():
+            label = entry.label if entry.label.startswith("#") else tr("tray.missed_message_entry", sender=entry.label)
+            item = Gtk.MenuItem(label=label)
+            item.connect("activate", lambda _item, k=key: _defer(self.handle_conversation_click, k))
+            self._missed_menu.append(item)
+        self._missed_menu.show_all()
+        self._missed_item.set_visible(bool(self._unread))
+
+    def _start_blink(self) -> None:
+        if self._blink_timer is None:
+            self._blink_timer = GLib.timeout_add(BLINK_INTERVAL_MS, self._toggle_blink)
+
+    def _stop_blink(self) -> None:
+        if self._blink_timer is not None:
+            GLib.source_remove(self._blink_timer)
+            self._blink_timer = None
+        self._blink_visible = False
+        self._refresh_icon()
+
+    def _toggle_blink(self) -> bool:
+        self._blink_visible = not self._blink_visible
+        self._refresh_icon()
+        return True
+
+    def _current_status_key(self) -> str:
+        # Any not-fully-connected state shows as grey regardless of the
+        # last presence seen.
+        return self._presence_status if self._state == ConnectionState.CONNECTED else "offline"
+
+    def _refresh_icon(self) -> None:
+        self._indicator.set_icon_full(icon_name(self._current_status_key(), self._blink_visible), "Zulip")
+
+    # --- menu / title ------------------------------------------------------------
+
+    def _handle_open_chat(self) -> None:
+        self.clear_all_unread()
+        self._on_open_chat()
+
+    def _update_status_text(self, text: str) -> None:
+        self._refresh_icon()
+        self._status_item.set_label(text)
+        # StatusNotifierItem has no tooltip GNOME would show; the title is
+        # the accessible name/hover text where a host renders one.
+        self._indicator.set_title(f"Zulip: {text}" if self._settings.tooltip_enabled else "Zulip")
+
+
+class _StatusMessageDialog(Gtk.Dialog):
+    def __init__(self, current_message: str, parent=None):
+        super().__init__(title=tr("tray.status_message_dialog_title"), transient_for=parent, modal=True)
+        self.set_default_size(380, -1)
+        self.set_resizable(False)
+        content = self.get_content_area()
+        content.set_spacing(8)
+        for side in ("top", "bottom", "start", "end"):
+            getattr(content, f"set_margin_{side}")(14)
+        label = Gtk.Label(label=tr("tray.status_message_dialog_label"), xalign=0)
+        label.set_line_wrap(True)
+        self._entry = Gtk.Entry(text=current_message, activates_default=True)
+        self._entry.set_max_length(60)  # Zulip's status_text limit
+        content.pack_start(label, False, False, 0)
+        content.pack_start(self._entry, False, False, 0)
+        self.add_button(tr("common.cancel"), Gtk.ResponseType.CANCEL)
+        ok_button = self.add_button(tr("common.ok"), Gtk.ResponseType.OK)
+        ok_button.get_style_context().add_class("suggested-action")
+        self.set_default_response(Gtk.ResponseType.OK)
+        content.show_all()
+        self._entry.grab_focus()
+        self._entry.select_region(0, -1)
+
+    def text(self) -> str:
+        return self._entry.get_text().strip()
