@@ -118,3 +118,27 @@ def test_search_ranks_word_starts_favorites_and_recent_first():
     assert names("mu") == ["Anna Müller", "Hans Muster", "José Mudd", "Samuel Brand"]
     assert names("JOSE") == ["José Mudd"]
     assert names("me") == []  # never oneself
+
+
+def test_unread_counts_per_person():
+    registration = {**REGISTRATION, "unread_msgs": {"pms": [
+        {"other_user_id": 9, "unread_message_ids": [101, 105]},
+        {"other_user_id": ME, "unread_message_ids": [120]},  # notes to self
+    ]}}
+    book = ContactBook.from_registration(registration, ME, 140)
+    unread = lambda: {c.user_id: c.unread for c in book.recent(now=NOW)}  # noqa: E731
+    assert unread() == {9: 2, 8: 0}
+    incoming = {"type": "message", "flags": [], "message": {
+        "id": 130, "type": "private", "sender_id": 8, "display_recipient": [{"id": ME}, {"id": 8}]}}
+    outgoing = {"type": "message", "flags": ["read"], "message": {
+        "id": 131, "type": "private", "sender_id": ME, "display_recipient": [{"id": ME}, {"id": 8}]}}
+    book.apply_event(incoming)
+    book.apply_event(outgoing)
+    assert unread() == {8: 1, 9: 2}
+    book.apply_event({"type": "update_message_flags", "op": "add", "flag": "read", "messages": [105, 130], "all": False})
+    assert unread() == {8: 0, 9: 1}
+    book.apply_event({"type": "update_message_flags", "op": "remove", "flag": "read", "messages": [130],
+                      "message_details": {"130": {"type": "private", "user_ids": [8]}}})
+    assert unread() == {8: 1, 9: 1}
+    book.apply_event({"type": "update_message_flags", "op": "add", "flag": "read", "messages": [], "all": True})
+    assert unread() == {8: 0, 9: 0}

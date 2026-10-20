@@ -30,6 +30,7 @@ class Contact:
     full_name: str
     status: str  # "active" | "idle" | "offline"
     last_message_ts: float | None
+    unread: int = 0
 
     @property
     def presence_mark(self) -> str:
@@ -95,6 +96,7 @@ class ContactBook:
         self._last_message_id: dict[int, int] = {}  # 1:1 DM partner -> newest message id
         self._last_message_ts: dict[int, float] = {}
         self._presences: dict[int, dict] = {}
+        self._unread: dict[int, set[int]] = {}  # 1:1 DM partner -> unread message ids
 
     @classmethod
     def from_registration(cls, registration: dict, own_user_id: int, offline_threshold: float) -> "ContactBook":
@@ -108,6 +110,12 @@ class ContactBook:
                 book._last_message_id[uid] = max(book._last_message_id.get(uid, 0), conversation["max_message_id"])
         for uid, entry in (registration.get("presences") or {}).items():
             book._presences[int(uid)] = entry
+        # unread_msgs comes with the message + update_message_flags event
+        # types; "pms" is the 1:1 part (group DMs are under "huddles").
+        for conversation in (registration.get("unread_msgs") or {}).get("pms") or []:
+            uid = conversation.get("other_user_id", conversation.get("sender_id"))
+            if uid is not None and uid != own_user_id:
+                book._unread[uid] = set(conversation.get("unread_message_ids") or [])
         return book
 
     def _add_person(self, person: dict) -> None:
@@ -135,10 +143,12 @@ class ContactBook:
     def apply_event(self, event: dict) -> None:
         kind = event.get("type")
         if kind == "message":
-            self._note_message(event.get("message") or {})
+            self._note_message(event.get("message") or {}, event.get("flags") or [])
         elif kind == "presence":
             for uid, entry in (event.get("presences") or {}).items():
                 self._presences[int(uid)] = entry
+        elif kind == "update_message_flags" and event.get("flag") == "read":
+            self._note_read_flags(event)
         elif kind == "realm_user":
             person = event.get("person") or {}
             uid = person.get("user_id")
@@ -155,7 +165,25 @@ class ContactBook:
                 # A reactivation carries no name; the user reappears with
                 # the next reconnect's realm_users.
 
-    def _note_message(self, message: dict) -> None:
+    def _note_read_flags(self, event: dict) -> None:
+        if event.get("op") == "add":
+            if event.get("all"):
+                self._unread.clear()
+                return
+            read = set(event.get("messages") or [])
+            for uid in list(self._unread):
+                self._unread[uid] -= read
+                if not self._unread[uid]:
+                    del self._unread[uid]
+        elif event.get("op") == "remove":
+            # Marked unread again; message_details (feature level 121) says
+            # whose DM each message belongs to.
+            for message_id, details in (event.get("message_details") or {}).items():
+                others = [uid for uid in details.get("user_ids") or [] if uid != self.own_user_id]
+                if details.get("type") == "private" and len(others) == 1:
+                    self._unread.setdefault(others[0], set()).add(int(message_id))
+
+    def _note_message(self, message: dict, flags=()) -> None:
         # Our own outgoing DMs arrive as message events too, so writing to
         # someone moves them up just like receiving from them does.
         if message.get("type") != "private":
@@ -164,6 +192,8 @@ class ContactBook:
         if len(others) != 1:
             return
         uid, message_id = others[0], message.get("id", 0)
+        if message.get("sender_id") != self.own_user_id and "read" not in flags:
+            self._unread.setdefault(uid, set()).add(message_id)
         if message_id >= self._last_message_id.get(uid, 0):
             self._last_message_id[uid] = message_id
             if message.get("timestamp"):
@@ -177,6 +207,7 @@ class ContactBook:
             full_name=self._users[uid],
             status=zulip_api.presence_status(self._presences.get(uid), now, self.offline_threshold),
             last_message_ts=self._last_message_ts.get(uid),
+            unread=len(self._unread.get(uid, ())),
         )
 
     def recent(self, limit: int = RECENT_LIMIT, exclude=(), now: float | None = None) -> list[Contact]:

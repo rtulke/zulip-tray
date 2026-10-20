@@ -76,7 +76,7 @@ class ContactSearchWindow(Gtk.Window):
         # The tray refreshes on every presence event; only rebuild the rows
         # when what they show changed, so the list does not jump while
         # someone scrolls through it.
-        shown = [(c.user_id, c.full_name, c.status, format_last_message(c.last_message_ts, now)) for c in matches]
+        shown = [(c.user_id, c.full_name, c.status, c.unread, format_last_message(c.last_message_ts, now)) for c in matches]
         if shown == self._shown:
             return
         self._shown = shown
@@ -101,7 +101,8 @@ class ContactSearchWindow(Gtk.Window):
         for side in ("start", "end"):
             getattr(line, f"set_margin_{side}")(8)
         line.pack_start(Gtk.Label(label=contact.presence_mark), False, False, 0)
-        name = Gtk.Label(label=contact.full_name, xalign=0)
+        name = Gtk.Label(label=f"{contact.full_name}  ({contact.unread})" if contact.unread else contact.full_name,
+                         xalign=0)
         name.set_ellipsize(Pango.EllipsizeMode.END)
         line.pack_start(name, True, True, 0)
         when = format_last_message(contact.last_message_ts, now)

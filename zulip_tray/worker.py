@@ -247,7 +247,10 @@ class ZulipWorker(threading.Thread):
                 state.topic_policies[key] = policy
         elif kind == "realm_user":
             self.contact_event.emit_from_thread(event)
-        elif kind == "update_message_flags" and event.get("flag") == "read" and event.get("op") == "add":
+        elif kind == "update_message_flags" and event.get("flag") == "read":
+            self.contact_event.emit_from_thread(event)  # unread counts in the DM menu
+            if event.get("op") != "add":
+                return
             if event.get("all"):
                 self.messages_read.emit_from_thread(None)  # None = everything
             else:

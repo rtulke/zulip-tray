@@ -320,6 +320,8 @@ class TrayController:
     @staticmethod
     def _contact_entry(contact: Contact, now: float, day_in_header: bool = False) -> tuple[int, str, str]:
         label = f"{contact.presence_mark}  {contact.full_name}"
+        if contact.unread:
+            label += f"  ({contact.unread})"
         when = format_last_message(contact.last_message_ts, now, day_in_header)
         return contact.user_id, contact.full_name, f"{label}  ·  {when}" if when else label
 
