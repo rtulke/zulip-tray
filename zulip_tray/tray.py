@@ -11,7 +11,7 @@ gi.require_version("AyatanaAppIndicator3", "0.1")
 from gi.repository import AyatanaAppIndicator3 as AppIndicator, GLib, Gtk  # noqa: E402
 
 from .config import STATUS_OPTIONS
-from .contacts import RECENT_LIMIT, Contact, ContactBook, format_last_message
+from .contacts import RECENCY_BUCKETS, RECENT_LIMIT, Contact, ContactBook, format_last_message, recency_bucket
 from .i18n import tr
 from .notifications import Notification, dm_fragment
 from .resources import ICON_DIR, icon_name
@@ -23,6 +23,12 @@ BLINK_INTERVAL_MS = 600
 # 140 s), and "today" turns into "yesterday" at midnight -- so the
 # contacts menu is re-evaluated on a timer too, not only on events.
 CONTACTS_REFRESH_SECONDS = 60
+RECENCY_HEADER_KEYS = {
+    "today": "tray.contacts_today",
+    "yesterday": "tray.contacts_yesterday",
+    "week": "tray.contacts_last_week",
+    "older": "tray.contacts_older",
+}
 INDICATOR_ID = "zulip-tray"
 
 STATUS_LABEL_KEYS = {
@@ -252,23 +258,23 @@ class TrayController:
 
     def refresh_contacts(self) -> None:
         """Favorites (by name), then the most recent 1:1 DM partners not
-        already listed, each with presence and the date of the last DM.
+        already listed, grouped into today / yesterday / last week / older,
+        each with presence and the time or date of the last DM.
         The submenu is only rebuilt when its content actually changed --
         presence events for the whole realm arrive every minute, and
         rebuilding while the menu is open would make it flicker."""
         book = self._contacts if self._state == ConnectionState.CONNECTED else None
-        sections: list[tuple[str, list[Contact]]] = []
+        now = GLib.get_real_time() / 1_000_000
+        rendered: list[tuple[str, list[tuple[int, str, str]]]] = []
         if book is not None:
             favorites = book.contacts(self._settings.favorite_user_ids)
-            recent = book.recent(RECENT_LIMIT, exclude={c.user_id for c in favorites})
-            sections = [(key, entries) for key, entries in (
-                ("tray.contacts_favorites_header", favorites), ("tray.contacts_recent_header", recent),
-            ) if entries]
-        now = GLib.get_real_time() / 1_000_000
-        rendered = [
-            (header, [(c.user_id, c.full_name, self._contact_label(c, now)) for c in entries])
-            for header, entries in sections
-        ]
+            if favorites:
+                rendered.append(("tray.contacts_favorites_header", [self._contact_entry(c, now) for c in favorites]))
+            buckets: dict[str, list] = {bucket: [] for bucket in RECENCY_BUCKETS}
+            for contact in book.recent(RECENT_LIMIT, exclude={c.user_id for c in favorites}, now=now):
+                entry = self._contact_entry(contact, now, day_in_header=True)
+                buckets[recency_bucket(contact.last_message_ts, now)].append(entry)
+            rendered += [(RECENCY_HEADER_KEYS[bucket], entries) for bucket, entries in buckets.items() if entries]
         if rendered == self._contacts_rendered:
             return
         self._contacts_rendered = rendered
@@ -288,10 +294,10 @@ class TrayController:
         self._contacts_item.set_visible(bool(rendered))
 
     @staticmethod
-    def _contact_label(contact: Contact, now: float) -> str:
+    def _contact_entry(contact: Contact, now: float, day_in_header: bool = False) -> tuple[int, str, str]:
         label = f"{PRESENCE_MARKS.get(contact.status, PRESENCE_MARKS['offline'])}  {contact.full_name}"
-        when = format_last_message(contact.last_message_ts, now)
-        return f"{label}  ·  {when}" if when else label
+        when = format_last_message(contact.last_message_ts, now, day_in_header)
+        return contact.user_id, contact.full_name, f"{label}  ·  {when}" if when else label
 
     def _open_contact(self, user_id: int, full_name: str) -> None:
         # Same key notifications.conversation_for uses for a 1:1 DM, so

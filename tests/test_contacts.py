@@ -1,7 +1,7 @@
 import time
 
 from zulip_tray import contacts, i18n
-from zulip_tray.contacts import ContactBook, format_last_message
+from zulip_tray.contacts import ContactBook, format_last_message, recency_bucket
 
 ME = 7
 NOW = 1_800_000_000.0
@@ -83,4 +83,17 @@ def test_format_last_message(monkeypatch):
     assert format_last_message(at(2026, 10, 19, 23, 59), now) == "gestern"
     assert format_last_message(at(2026, 3, 4, 12, 0), now) == "04.03."
     assert format_last_message(at(2025, 12, 31, 12, 0), now) == "31.12.2025"
+    assert format_last_message(at(2026, 10, 19, 23, 59), now, day_in_header=True) == "23:59"
     assert contacts.RECENT_LIMIT == 10
+
+
+def test_recency_bucket():
+    now = time.mktime((2026, 10, 20, 0, 30, 0, 0, 0, -1))
+    at = lambda *ymdhm: time.mktime((*ymdhm, 0, 0, 0, -1))  # noqa: E731
+    assert recency_bucket(at(2026, 10, 20, 0, 1), now) == "today"
+    assert recency_bucket(now + 60, now) == "today"
+    assert recency_bucket(at(2026, 10, 19, 23, 59), now) == "yesterday"
+    assert recency_bucket(at(2026, 10, 18, 0, 0), now) == "week"
+    assert recency_bucket(at(2026, 10, 14, 0, 0), now) == "week"
+    assert recency_bucket(at(2026, 10, 13, 23, 59), now) == "older"
+    assert recency_bucket(None, now) == "older"

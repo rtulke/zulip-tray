@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from datetime import date
 
 from . import zulip_api
 from .i18n import tr
@@ -12,6 +13,9 @@ from .i18n import tr
 RECENT_LIMIT = 10
 TIMESTAMP_FETCH_LIMIT = 50
 
+# Day groups the recent DM partners are split into, newest first.
+RECENCY_BUCKETS = ("today", "yesterday", "week", "older")
+
 
 @dataclass(frozen=True)
 class Contact:
@@ -21,9 +25,25 @@ class Contact:
     last_message_ts: float | None
 
 
-def format_last_message(ts: float | None, now: float) -> str:
+def recency_bucket(ts: float | None, now: float) -> str:
+    """Which RECENCY_BUCKETS group a last DM falls into, by local calendar
+    day: "week" covers the five days before yesterday. Without a timestamp
+    (beyond TIMESTAMP_FETCH_LIMIT) the conversation is old by definition."""
+    if not ts:
+        return "older"
+    days = (date.fromtimestamp(now) - date.fromtimestamp(ts)).days
+    if days <= 0:  # a clock slightly behind the server counts as today
+        return "today"
+    if days == 1:
+        return "yesterday"
+    return "week" if days < 7 else "older"
+
+
+def format_last_message(ts: float | None, now: float, day_in_header: bool = False) -> str:
     """Short local date of the last DM: "13:18" today, "gestern" (in the
-    UI language) yesterday, "17.10." this year, "17.10.2025" before."""
+    UI language) yesterday, "17.10." this year, "17.10.2025" before.
+    With day_in_header the menu section already says today/yesterday, so
+    those get the time of day instead."""
     if not ts:
         return ""
     then, today = time.localtime(ts), time.localtime(now)
@@ -31,7 +51,7 @@ def format_last_message(ts: float | None, now: float) -> str:
         return time.strftime("%H:%M", then)
     yesterday = time.localtime(now - 86400)
     if then[:3] == yesterday[:3]:
-        return tr("contacts.yesterday")
+        return time.strftime("%H:%M", then) if day_in_header else tr("contacts.yesterday")
     day, month = f"{then.tm_mday:02d}", f"{then.tm_mon:02d}"
     if then.tm_year == today.tm_year:
         return tr("contacts.date_short", day=day, month=month)
