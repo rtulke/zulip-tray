@@ -60,8 +60,7 @@ class NotificationManager:
         # Lets GNOME Shell attribute the notification to this app's
         # .desktop entry (name + icon in the banner and the message tray).
         notice.set_hint("desktop-entry", GLib.Variant("s", APP_ID))
-        key = notification.conversation.key
-        notice.add_action("default", "Open", self._handle_action, key)
+        notice.add_action("default", "Open", self._handle_action, notification)
         if offers_reply(notification.conversation, self._settings.reply_button):
             notice.add_action("reply", tr("notify.reply"), self._handle_reply, notification)
         notice.connect("closed", self._handle_closed)
@@ -72,9 +71,15 @@ class NotificationManager:
             return
         self._live[id(notice)] = notice
 
-    def _handle_action(self, notice: Notify.Notification, action: str, key: str) -> None:
-        if action == "default" and self._on_conversation_clicked:
-            self._on_conversation_clicked(key)
+    def _handle_action(self, notice: Notify.Notification, action: str, notification: Notification) -> None:
+        if action != "default":
+            return
+        if self._settings.click_action == "reply" and offers_reply(
+            notification.conversation, self._settings.reply_button,
+        ):
+            self._handle_reply(notice, "reply", notification)
+        elif self._on_conversation_clicked:
+            self._on_conversation_clicked(notification.conversation.key)
 
     def _handle_reply(self, notice: Notify.Notification, _action: str, notification: Notification) -> None:
         if self._on_reply:

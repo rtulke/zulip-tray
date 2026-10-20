@@ -20,9 +20,17 @@ USER_SETTINGS_PATH = Path.home() / ".config" / "zulip-tray" / "settings.json"
 # presence_enabled=false (others see you as offline). Zulip has no "busy".
 STATUS_OPTIONS = ("auto", "online", "away", "invisible")
 
+# How far back the direct-messages menu lists recent conversations below
+# the favorites (see contacts.bucket_in_range).
+RECENT_RANGES = ("off", "today", "yesterday", "week", "all")
+
 # Which notifications get the Reply button: none, direct messages only,
 # or channel messages too (a channel reply is public, hence not default).
 REPLY_BUTTON_OPTIONS = ("off", "direct", "all")
+# What a click on the notification itself does where a Reply button is on
+# offer: open the web chat, or the answer window. GNOME 46 shows action
+# buttons only once a notification is expanded, the click works always.
+CLICK_ACTIONS = ("open", "reply")
 
 # Light/dark choice for the tray's own windows and for the Zulip web chat:
 # "system" follows GNOME's style switch.
@@ -39,6 +47,7 @@ DEFAULT_SETTINGS = {
         # window shows one message without its thread, and a channel reply
         # is public.
         "reply_button": "direct",
+        "click_action": "open",  # CLICK_ACTIONS
     },
     "presence": {
         "forced_status": "auto",
@@ -66,6 +75,9 @@ DEFAULT_SETTINGS = {
         # Zulip user ids pinned at the top of the tray's contacts menu.
         # Local to this machine: Zulip itself has no favorite users.
         "favorites": [],
+        # contacts.RECENT_RANGES: how far back recent DM partners show up
+        # below the favorites.
+        "recent_range": "week",
     },
 }
 
@@ -192,6 +204,15 @@ class UserSettings:
             value = "all"  # 0.4.2 stored a boolean switch instead
         return value if value in REPLY_BUTTON_OPTIONS else "direct"
 
+    @property
+    def click_action(self) -> str:
+        value = self._data["notifications"].get("click_action")
+        return value if value in CLICK_ACTIONS else "open"
+
+    @click_action.setter
+    def click_action(self, value: str) -> None:
+        self._data["notifications"]["click_action"] = value if value in CLICK_ACTIONS else "open"
+
     @reply_button.setter
     def reply_button(self, value: str) -> None:
         self._data["notifications"]["reply_button"] = value if value in REPLY_BUTTON_OPTIONS else "direct"
@@ -301,6 +322,15 @@ class UserSettings:
     @favorite_user_ids.setter
     def favorite_user_ids(self, value: list[int]) -> None:
         self._data["contacts"]["favorites"] = list(dict.fromkeys(int(uid) for uid in value))
+
+    @property
+    def recent_range(self) -> str:
+        value = self._data["contacts"].get("recent_range")
+        return value if value in RECENT_RANGES else "week"
+
+    @recent_range.setter
+    def recent_range(self, value: str) -> None:
+        self._data["contacts"]["recent_range"] = value if value in RECENT_RANGES else "week"
 
 
 def effective_admin_config(settings: UserSettings) -> AdminConfig:

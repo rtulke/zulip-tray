@@ -142,3 +142,13 @@ def test_unread_counts_per_person():
     assert unread() == {8: 1, 9: 1}
     book.apply_event({"type": "update_message_flags", "op": "add", "flag": "read", "messages": [], "all": True})
     assert unread() == {8: 0, 9: 0}
+
+
+def test_bucket_in_range():
+    from zulip_tray.contacts import bucket_in_range
+    shown = lambda rng: [b for b in contacts.RECENCY_BUCKETS if bucket_in_range(b, rng)]  # noqa: E731
+    assert shown("off") == []
+    assert shown("today") == ["today"]
+    assert shown("yesterday") == ["today", "yesterday"]
+    assert shown("week") == ["today", "yesterday", "week"]
+    assert shown("all") == ["today", "yesterday", "week", "older"]

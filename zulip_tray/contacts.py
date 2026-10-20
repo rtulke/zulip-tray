@@ -18,6 +18,17 @@ TIMESTAMP_FETCH_LIMIT = 50
 RECENCY_BUCKETS = ("today", "yesterday", "week", "older")
 
 
+def bucket_in_range(bucket: str, recent_range: str) -> bool:
+    """Whether a recency bucket shows in the menu for a config.RECENT_RANGES
+    choice: each range shows its own bucket and every newer one; "off"
+    none, "all" every bucket."""
+    if recent_range == "all":
+        return True
+    if recent_range not in RECENCY_BUCKETS:
+        return False  # "off"
+    return RECENCY_BUCKETS.index(bucket) <= RECENCY_BUCKETS.index(recent_range)
+
+
 # DBusMenu labels are plain text, so presence is shown with colour emoji
 # (rendered by GNOME Shell via Noto Color Emoji); the search window uses
 # the same marks so both look alike.

@@ -12,7 +12,9 @@ from gi.repository import AyatanaAppIndicator3 as AppIndicator, GLib, Gtk  # noq
 
 from .config import STATUS_OPTIONS
 from .contact_search import ContactSearchWindow
-from .contacts import RECENCY_BUCKETS, RECENT_LIMIT, Contact, ContactBook, format_last_message, recency_bucket
+from .contacts import (
+    RECENCY_BUCKETS, RECENT_LIMIT, Contact, ContactBook, bucket_in_range, format_last_message, recency_bucket,
+)
 from .i18n import tr
 from .notifications import Notification, dm_fragment
 from .resources import ICON_DIR, icon_name
@@ -79,6 +81,7 @@ class TrayController:
         self._on_open_conversation = on_open_conversation  # (fragment)
         self._on_set_status = on_set_status
         self._on_set_status_message = on_set_status_message
+        self._on_open_settings = on_open_settings  # (page name or None)
         self._state = ConnectionState.DISCONNECTED
         self._presence_status = "offline"
         self._unread: dict[str, _Unread] = {}  # conversation key -> entry, insertion-ordered
@@ -135,7 +138,7 @@ class TrayController:
 
         menu.append(Gtk.SeparatorMenuItem())
         settings_item = Gtk.MenuItem(label=tr("tray.settings_action"))
-        settings_item.connect("activate", lambda *_: _defer(on_open_settings))
+        settings_item.connect("activate", lambda *_: _defer(on_open_settings, None))
         menu.append(settings_item)
         self._reenter_login_item = Gtk.MenuItem(label=tr("tray.reenter_login_action"))
         self._reenter_login_item.connect("activate", lambda *_: _defer(on_reenter_login))
@@ -290,9 +293,13 @@ class TrayController:
             if favorites:
                 rendered.append(("tray.contacts_favorites_header", [self._contact_entry(c, now) for c in favorites]))
             buckets: dict[str, list] = {bucket: [] for bucket in RECENCY_BUCKETS}
+            recent_range = self._settings.recent_range
             for contact in book.recent(RECENT_LIMIT, exclude={c.user_id for c in favorites}, now=now):
-                entry = self._contact_entry(contact, now, day_in_header=True)
-                buckets[recency_bucket(contact.last_message_ts, now)].append(entry)
+                bucket = recency_bucket(contact.last_message_ts, now)
+                # Unread conversations show regardless of the range, so a
+                # waiting answer is never hidden by the setting.
+                if contact.unread or bucket_in_range(bucket, recent_range):
+                    buckets[bucket].append(self._contact_entry(contact, now, day_in_header=True))
             rendered += [(RECENCY_HEADER_KEYS[bucket], entries) for bucket, entries in buckets.items() if entries]
         if self._search_window is not None and book is not None:
             # Same 60 s timer and events keep presence and dates current
@@ -314,8 +321,15 @@ class TrayController:
                 item = Gtk.MenuItem(label=label)
                 item.connect("activate", lambda _item, u=user_id, n=full_name: _defer(self._open_contact, u, n))
                 self._contacts_menu.append(item)
+        if book is not None and not rendered:
+            # Nothing to list (no favorites, recent ones switched off or none
+            # in range): point to where the menu gets filled instead of
+            # hiding it.
+            setup_item = Gtk.MenuItem(label=tr("tray.contacts_setup"))
+            setup_item.connect("activate", lambda *_: _defer(self._on_open_settings, "favorites"))
+            self._contacts_menu.append(setup_item)
         self._contacts_menu.show_all()
-        self._contacts_item.set_visible(bool(rendered))
+        self._contacts_item.set_visible(book is not None)
 
     @staticmethod
     def _contact_entry(contact: Contact, now: float, day_in_header: bool = False) -> tuple[int, str, str]:

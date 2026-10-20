@@ -229,7 +229,7 @@ class ZulipTrayApplication(Gtk.Application):
     def open_chat(self, fragment: str | None) -> None:
         self.room_opener.open(self.admin_config.server_url, fragment, app_mode=self.settings.app_mode_enabled)
 
-    def open_settings(self) -> None:
+    def open_settings(self, page: str | None = None) -> None:
         dialog = SettingsDialog(
             self.settings, self.admin_config.server_url, self.admin_config.verify_ssl, autostart.is_enabled(),
             self.settings.email, self.notifier.play_test_sound, self.update_server, self.reenter_login,
@@ -248,13 +248,18 @@ class ZulipTrayApplication(Gtk.Application):
             dialog.destroy()
 
         dialog.connect("response", on_response)
+        if page:
+            dialog.show_page(page)
         dialog.present()
 
     def open_reply(self, notification, activation_token: str | None = None) -> None:
         key = notification.conversation.key
         window = self._reply_windows.get(key)
         if window is None:
-            window = ReplyWindow(notification, lambda text, done: self._send_reply(notification, text, done))
+            window = ReplyWindow(
+                notification, lambda text, done: self._send_reply(notification, text, done),
+                on_open_chat=lambda: self.tray.handle_conversation_click(key),
+            )
             window.connect("destroy", lambda *_: self._reply_windows.pop(key, None))
             self._reply_windows[key] = window
         if activation_token:

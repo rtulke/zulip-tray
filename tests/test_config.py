@@ -38,6 +38,15 @@ def test_user_settings_roundtrip_and_validation(tmp_path):
     assert again.forced_status == "invisible" and again.idle_threshold_minutes == 25
     assert again.email == "Alice@example.com" and again.sound_volume == 1.0
     assert again.reply_button == "off"
+    assert again.recent_range == "week" and again.click_action == "open"
+    s.click_action = "reply"
+    assert s.click_action == "reply"
+    s.click_action = "bogus"
+    assert s.click_action == "open"
+    s.recent_range = "today"
+    assert s.recent_range == "today"
+    s.recent_range = "bogus"
+    assert s.recent_range == "week"
     s.reply_button = "bogus"
     assert s.reply_button == "direct"
     # 0.4.2's boolean switch carries over

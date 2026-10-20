@@ -8,7 +8,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk  # noqa: E402
 
 from . import sounds
-from .config import COLOR_SCHEMES, REPLY_BUTTON_OPTIONS
+from .config import CLICK_ACTIONS, COLOR_SCHEMES, RECENT_RANGES, REPLY_BUTTON_OPTIONS
 from .i18n import tr
 
 ROW_MARGIN = 10
@@ -113,6 +113,15 @@ class SettingsDialog(Gtk.Dialog):
             self._reply_combo.append(option, tr(f"settings.reply_button_{option}"))
         if not self._reply_combo.set_active_id(settings.reply_button):
             self._reply_combo.set_active(1)
+        self._click_combo = Gtk.ComboBoxText()
+        for option in CLICK_ACTIONS:
+            self._click_combo.append(option, tr(f"settings.click_action_{option}"))
+        if not self._click_combo.set_active_id(settings.click_action):
+            self._click_combo.set_active(0)
+        # Only meaningful while there is a Reply button to stand in for.
+        self._reply_combo.connect("changed", lambda combo: self._click_combo.set_sensitive(
+            combo.get_active_id() != "off"))
+        self._click_combo.set_sensitive(settings.reply_button != "off")
         self._sound_combo = Gtk.ComboBoxText()
         for key, label, _path in sounds.available_choices():
             self._sound_combo.append(key, label)
@@ -143,6 +152,7 @@ class SettingsDialog(Gtk.Dialog):
             _row(_label(tr("settings.volume")), volume_box, expand_last=True),
             _row(_label(tr("settings.tooltip")), self._tooltip_switch),
             _row(_label(tr("settings.reply_button")), self._reply_combo),
+            _row(_label(tr("settings.click_action")), self._click_combo),
         ])
 
         # --- away -----------------------------------------------------------------------
@@ -198,6 +208,17 @@ class SettingsDialog(Gtk.Dialog):
         # there are no names to show, and the stored favorites stay as they are.
         self._favorite_checks: dict[int, Gtk.CheckButton] = {}
         favorites_card = self._build_favorites_card(users, set(settings.favorite_user_ids))
+        self._recent_combo = Gtk.ComboBoxText()
+        for option in RECENT_RANGES:
+            self._recent_combo.append(option, tr(f"settings.recent_range_{option}"))
+        if not self._recent_combo.set_active_id(settings.recent_range):
+            self._recent_combo.set_active_id("week")
+        recent_hint = _label(tr("settings.recent_range_hint"))
+        recent_hint.get_style_context().add_class("dim-label")
+        recent_card = _boxed_list([
+            _row(_label(tr("settings.recent_range")), self._recent_combo),
+            _row(recent_hint),
+        ])
 
         # --- layout ---------------------------------------------------------------------
         stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.NONE, hexpand=True, vexpand=True)
@@ -208,10 +229,11 @@ class SettingsDialog(Gtk.Dialog):
              _page(tr("settings.section_notifications"), notifications_card)),
             ("presence", tr("settings.section_presence"), _page(tr("settings.section_presence"), presence_card)),
             ("colors", tr("settings.section_colors"), _page(tr("settings.section_colors"), colors_card)),
-            ("favorites", tr("settings.section_favorites"),
-             _page(tr("settings.section_favorites"), favorites_card)),
+            ("favorites", tr("settings.section_direct_messages"),
+             _page(tr("settings.section_direct_messages"), recent_card, favorites_card)),
         ]:
             stack.add_titled(page, name, label)
+        self._stack = stack
         sidebar = Gtk.StackSidebar(stack=stack)
         sidebar.set_size_request(200, -1)
         content_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
@@ -226,6 +248,12 @@ class SettingsDialog(Gtk.Dialog):
         self.set_default_response(Gtk.ResponseType.OK)
         self.connect("response", self._handle_response)
         content.show_all()
+
+    def show_page(self, name: str) -> None:
+        """Open on a given category, e.g. "favorites" from the tray's
+        empty direct-messages menu."""
+        if self._stack.get_child_by_name(name) is not None:
+            self._stack.set_visible_child_name(name)
 
     @staticmethod
     def _color_combo(current: str) -> Gtk.ComboBoxText:
@@ -284,6 +312,7 @@ class SettingsDialog(Gtk.Dialog):
         settings.sound_enabled = self._sound_switch.get_active()
         settings.tooltip_enabled = self._tooltip_switch.get_active()
         settings.reply_button = self._reply_combo.get_active_id() or "direct"
+        settings.click_action = self._click_combo.get_active_id() or "open"
         settings.app_mode_enabled = self._app_mode_switch.get_active()
         settings.idle_detection_enabled = self._idle_switch.get_active()
         settings.idle_threshold_minutes = int(self._idle_scale.get_value()) * 5
@@ -294,6 +323,7 @@ class SettingsDialog(Gtk.Dialog):
         if (self._chat_colors_combo.get_sensitive() and chat_scheme != self._initial_chat_color_scheme
                 and self._on_set_chat_color_scheme is not None):
             self._on_set_chat_color_scheme(chat_scheme)
+        settings.recent_range = self._recent_combo.get_active_id() or "week"
         if self._favorite_checks:
             settings.favorite_user_ids = [uid for uid, check in self._favorite_checks.items() if check.get_active()]
         settings.save()

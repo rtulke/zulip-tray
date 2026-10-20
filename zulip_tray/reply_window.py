@@ -19,7 +19,10 @@ class ReplyWindow(Gtk.Window):
     closes. on_send(text, on_done) runs the request off the main loop and
     calls on_done(error) back on it (None = sent)."""
 
-    def __init__(self, notification: Notification, on_send: Callable[[str, Callable[[str | None], None]], None]):
+    def __init__(
+        self, notification: Notification, on_send: Callable[[str, Callable[[str | None], None]], None],
+        on_open_chat: Callable[[], None] | None = None,
+    ):
         super().__init__(title=tr("reply.title", name=notification.conversation.label))
         self._on_send = on_send
         self.set_icon_name("zulip-tray")
@@ -57,14 +60,20 @@ class ReplyWindow(Gtk.Window):
         self._status.set_line_wrap(True)
         box.pack_start(self._status, False, False, 0)
 
-        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        buttons = Gtk.Box(spacing=8)
+        if on_open_chat is not None:
+            # The whole thread in the web client, for when one message is
+            # not enough context to answer.
+            open_chat = Gtk.Button(label=tr("reply.open_chat"))
+            open_chat.connect("clicked", lambda *_: (self.destroy(), on_open_chat()))
+            buttons.pack_start(open_chat, False, False, 0)
         cancel = Gtk.Button(label=tr("common.cancel"))
         cancel.connect("clicked", lambda *_: self.destroy())
         self._send_button = Gtk.Button(label=tr("reply.send"))
         self._send_button.get_style_context().add_class("suggested-action")
         self._send_button.connect("clicked", lambda *_: self._send())
-        buttons.pack_start(cancel, False, False, 0)
-        buttons.pack_start(self._send_button, False, False, 0)
+        buttons.pack_end(self._send_button, False, False, 0)
+        buttons.pack_end(cancel, False, False, 0)
         box.pack_start(buttons, False, False, 0)
         self.add(box)
         self.connect("key-press-event", self._on_window_key)
