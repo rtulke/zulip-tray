@@ -21,7 +21,10 @@ USER_AGENT = f"ZulipTray/{__version__}"
 
 # Event types this client consumes (see worker.py). "heartbeat" events
 # arrive regardless; presence pings are a separate endpoint, not events.
-EVENT_TYPES = ["message", "presence", "user_settings", "subscription", "update_message_flags"]
+EVENT_TYPES = ["message", "presence", "user_settings", "subscription", "update_message_flags", "realm_user"]
+# Initial state only: recent_private_conversations has no events of its
+# own, the client keeps it current from message events (contacts.py).
+FETCH_EVENT_TYPES = [*EVENT_TYPES, "recent_private_conversations"]
 CLIENT_CAPABILITIES = {
     # desktop_notifications on a subscription may then be null, meaning
     # "use the account-wide default" -- see notifications.py.
@@ -142,13 +145,14 @@ class ZulipApi:
         """POST /register with exactly what this client needs. The response
         carries the initial state for the requested event types:
         subscriptions (per-stream notification flags), user_settings,
-        presences, plus queue_id/last_event_id and the server's own
-        presence/long-poll timing constants."""
+        presences, realm_users and recent_private_conversations (the
+        tray's contacts menu), plus queue_id/last_event_id and the
+        server's own presence/long-poll timing constants."""
         return self._request(
             "POST", "register",
             data={
                 "event_types": json.dumps(EVENT_TYPES),
-                "fetch_event_types": json.dumps(EVENT_TYPES),
+                "fetch_event_types": json.dumps(FETCH_EVENT_TYPES),
                 "client_capabilities": json.dumps(CLIENT_CAPABILITIES),
                 # Markdown source, not rendered HTML: notification bodies are
                 # plain text anyway, and the source reads better there than
@@ -169,6 +173,18 @@ class ZulipApi:
             timeout=(CONNECT_TIMEOUT_SECONDS, longpoll_timeout + 10),
         )
         return body.get("events", [])
+
+    def get_messages_by_id(self, message_ids: list[int]) -> list[dict]:
+        """GET /messages?message_ids=[...] (Zulip 10+, feature level 300):
+        the contacts menu needs the timestamps behind the bare ids in
+        recent_private_conversations."""
+        if not message_ids:
+            return []
+        body = self._request(
+            "GET", "messages",
+            params={"message_ids": json.dumps(message_ids), "apply_markdown": "false", "client_gravatar": "true"},
+        )
+        return body.get("messages", [])
 
     def delete_queue(self, queue_id: str) -> None:
         """Best-effort DELETE /events. Also the trick for waking a thread

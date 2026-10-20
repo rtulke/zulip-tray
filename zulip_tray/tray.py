@@ -11,13 +11,18 @@ gi.require_version("AyatanaAppIndicator3", "0.1")
 from gi.repository import AyatanaAppIndicator3 as AppIndicator, GLib, Gtk  # noqa: E402
 
 from .config import STATUS_OPTIONS
+from .contacts import RECENT_LIMIT, Contact, ContactBook, format_last_message
 from .i18n import tr
-from .notifications import Notification
+from .notifications import Notification, dm_fragment
 from .resources import ICON_DIR, icon_name
 
 logger = logging.getLogger(__name__)
 
 BLINK_INTERVAL_MS = 600
+# Presence of others goes stale without any event (offline = no ping for
+# 140 s), and "today" turns into "yesterday" at midnight -- so the
+# contacts menu is re-evaluated on a timer too, not only on events.
+CONTACTS_REFRESH_SECONDS = 60
 INDICATOR_ID = "zulip-tray"
 
 STATUS_LABEL_KEYS = {
@@ -26,6 +31,11 @@ STATUS_LABEL_KEYS = {
     "away": "tray.status_away",
     "invisible": "tray.status_invisible",
 }
+
+
+# DBusMenu labels are plain text, so presence is shown with colour emoji
+# (rendered by GNOME Shell via Noto Color Emoji).
+PRESENCE_MARKS = {"active": "🟢", "idle": "🟠", "offline": "⚪"}
 
 
 class ConnectionState(Enum):
@@ -73,6 +83,8 @@ class TrayController:
         self._blink_timer: int | None = None
         self._email = ""
         self._updating_menu = False
+        self._contacts: ContactBook | None = None
+        self._contacts_rendered: list | None = None
 
         self._indicator = AppIndicator.Indicator.new(
             INDICATOR_ID, icon_name("offline"), AppIndicator.IndicatorCategory.APPLICATION_STATUS,
@@ -100,6 +112,11 @@ class TrayController:
         status_item.set_submenu(self._build_status_menu(settings.forced_status))
         menu.append(status_item)
 
+        self._contacts_item = Gtk.MenuItem(label=tr("tray.contacts_submenu"))
+        self._contacts_menu = Gtk.Menu()
+        self._contacts_item.set_submenu(self._contacts_menu)
+        menu.append(self._contacts_item)
+
         menu.append(Gtk.SeparatorMenuItem())
         about_item = Gtk.MenuItem(label=tr("tray.about_action"))
         about_item.connect("activate", lambda *_: _defer(on_show_about))
@@ -123,6 +140,7 @@ class TrayController:
 
         menu.show_all()
         self._missed_item.hide()
+        self._contacts_item.hide()
         self._reenter_login_item.hide()
         self._indicator.set_menu(menu)
         self._menu = menu  # keep a reference alive
@@ -131,6 +149,7 @@ class TrayController:
         self._indicator.set_secondary_activate_target(open_chat_item)
 
         self._update_status_text(tr("tray.disconnected"))
+        GLib.timeout_add_seconds(CONTACTS_REFRESH_SECONDS, lambda: (self.refresh_contacts(), True)[1])
 
     def _build_status_menu(self, current_status: str) -> Gtk.Menu:
         menu = Gtk.Menu()
@@ -177,6 +196,7 @@ class TrayController:
     def set_connecting(self) -> None:
         self._state = ConnectionState.CONNECTING
         self._reenter_login_item.hide()
+        self._drop_contacts()
         self._stop_blink()
         self._update_status_text(tr("tray.connecting"))
 
@@ -189,6 +209,7 @@ class TrayController:
     def set_disconnected(self, _reason: str = "") -> None:
         self._state = ConnectionState.DISCONNECTED
         self._stop_blink()
+        self._drop_contacts()
         self._update_status_text(tr("tray.disconnected_retrying"))
 
     def set_reconnect_scheduled(self, seconds: float) -> None:
@@ -198,6 +219,7 @@ class TrayController:
     def set_auth_error(self, _message: str = "") -> None:
         self._state = ConnectionState.AUTH_ERROR
         self._stop_blink()
+        self._drop_contacts()
         self._reenter_login_item.show()
         self._update_status_text(tr("tray.auth_error"))
 
@@ -206,6 +228,76 @@ class TrayController:
         offline/invisible), see presence.PresenceCoordinator."""
         self._presence_status = status
         self._refresh_icon()
+
+    # --- contacts ---------------------------------------------------------------
+
+    @property
+    def contacts(self) -> ContactBook | None:
+        """The current session's contact book (None while not connected);
+        main.py hands its user list to the settings dialog."""
+        return self._contacts
+
+    def set_contacts(self, book: ContactBook) -> None:
+        self._contacts = book
+        self.refresh_contacts()
+
+    def apply_contact_event(self, event: dict) -> None:
+        if self._contacts is not None:
+            self._contacts.apply_event(event)
+            self.refresh_contacts()
+
+    def _drop_contacts(self) -> None:
+        self._contacts = None
+        self.refresh_contacts()
+
+    def refresh_contacts(self) -> None:
+        """Favorites (by name), then the most recent 1:1 DM partners not
+        already listed, each with presence and the date of the last DM.
+        The submenu is only rebuilt when its content actually changed --
+        presence events for the whole realm arrive every minute, and
+        rebuilding while the menu is open would make it flicker."""
+        book = self._contacts if self._state == ConnectionState.CONNECTED else None
+        sections: list[tuple[str, list[Contact]]] = []
+        if book is not None:
+            favorites = book.contacts(self._settings.favorite_user_ids)
+            recent = book.recent(RECENT_LIMIT, exclude={c.user_id for c in favorites})
+            sections = [(key, entries) for key, entries in (
+                ("tray.contacts_favorites_header", favorites), ("tray.contacts_recent_header", recent),
+            ) if entries]
+        now = GLib.get_real_time() / 1_000_000
+        rendered = [
+            (header, [(c.user_id, c.full_name, self._contact_label(c, now)) for c in entries])
+            for header, entries in sections
+        ]
+        if rendered == self._contacts_rendered:
+            return
+        self._contacts_rendered = rendered
+        for child in self._contacts_menu.get_children():
+            self._contacts_menu.remove(child)
+        for index, (header, entries) in enumerate(rendered):
+            if index:
+                self._contacts_menu.append(Gtk.SeparatorMenuItem())
+            header_item = Gtk.MenuItem(label=tr(header))
+            header_item.set_sensitive(False)
+            self._contacts_menu.append(header_item)
+            for user_id, full_name, label in entries:
+                item = Gtk.MenuItem(label=label)
+                item.connect("activate", lambda _item, u=user_id, n=full_name: _defer(self._open_contact, u, n))
+                self._contacts_menu.append(item)
+        self._contacts_menu.show_all()
+        self._contacts_item.set_visible(bool(rendered))
+
+    @staticmethod
+    def _contact_label(contact: Contact, now: float) -> str:
+        label = f"{PRESENCE_MARKS.get(contact.status, PRESENCE_MARKS['offline'])}  {contact.full_name}"
+        when = format_last_message(contact.last_message_ts, now)
+        return f"{label}  ·  {when}" if when else label
+
+    def _open_contact(self, user_id: int, full_name: str) -> None:
+        # Same key notifications.conversation_for uses for a 1:1 DM, so
+        # opening the chat from here also clears it from the missed list.
+        self.clear_unread(f"dm:{user_id}")
+        self._on_open_conversation(dm_fragment([user_id], full_name))
 
     # --- unread / blink -------------------------------------------------------
 

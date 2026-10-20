@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass, field
 
 from . import notifications, zulip_api
+from .contacts import ContactBook
 from .mainloop import Signal, spawn
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,8 @@ class ZulipWorker(threading.Thread):
         self.own_presence = Signal("own_presence")  # (status: "active"|"idle"|"offline")
         self.user_setting_changed = Signal("user_setting_changed")  # (property: str, value)
         self.messages_read = Signal("messages_read")  # (message_ids: list[int])
+        self.contacts_loaded = Signal("contacts_loaded")  # (ContactBook), owned by the main thread from then on
+        self.contact_event = Signal("contact_event")  # (event: dict), for ContactBook.apply_event
 
     # --- control (any thread) -------------------------------------------------------
 
@@ -171,12 +174,22 @@ class ZulipWorker(threading.Thread):
         )
         queue_id = registration["queue_id"]
         last_event_id = registration["last_event_id"]
+        contacts = ContactBook.from_registration(registration, state.user_id, state.offline_threshold)
+        try:
+            contacts.note_timestamps(api.get_messages_by_id(contacts.message_ids_needing_timestamps()))
+        except zulip_api.AuthError as exc:
+            raise _AuthFailure(str(exc)) from exc
+        except zulip_api.ApiError as exc:
+            # Only the dates in the contacts menu are missing then; not
+            # worth failing the session over.
+            logger.warning("Zeitstempel der letzten Direktnachrichten nicht abrufbar: %s", exc)
 
         self._backoff = BACKOFF_BASE_SECONDS  # reset only after a fully successful registration
         self._queue_id = queue_id
         self.state = state
         self.api = api
         self.connected.emit_from_thread(state)
+        self.contacts_loaded.emit_from_thread(contacts)
         own_status = zulip_api.own_presence_from_response(registration, state.user_id, state.offline_threshold)
         if own_status:
             self.own_presence.emit_from_thread(own_status)
@@ -203,7 +216,10 @@ class ZulipWorker(threading.Thread):
             )
             if notification:
                 self.notification.emit_from_thread(notification)
+            if event.get("message", {}).get("type") == "private":
+                self.contact_event.emit_from_thread(event)
         elif kind == "presence":
+            self.contact_event.emit_from_thread(event)
             # Modern format (simplified_presence_events): "presences" keyed
             # by user id. Compared against the local clock -- the server
             # timestamp isn't included in this format, and a 140 s window
@@ -220,6 +236,8 @@ class ZulipWorker(threading.Thread):
                 self.user_setting_changed.emit_from_thread(prop, value)
         elif kind == "subscription":
             self._handle_subscription_event(event, state)
+        elif kind == "realm_user":
+            self.contact_event.emit_from_thread(event)
         elif kind == "update_message_flags" and event.get("flag") == "read" and event.get("op") == "add":
             if event.get("all"):
                 self.messages_read.emit_from_thread(None)  # None = everything

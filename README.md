@@ -6,6 +6,7 @@ A small GNOME system-tray client for [Zulip](https://zulip.com/): your own prese
 - Desktop notifications according to your Zulip notification settings (direct messages, mentions, channels with desktop notifications on; muted channels stay quiet), with click-to-open-that-conversation. Messages you read elsewhere drop out of the "missed messages" list automatically.
 - Configurable notification sound from the system's GNOME/freedesktop sound theme (or the bundled chime).
 - Status menu: automatic, online, away, invisible — plus a status text.
+- Contacts menu: your favorite people (picked in Settings, stored locally) and the people you most recently exchanged direct messages with, each with their presence and the date of the last message; one click opens the conversation. Group DMs are left out.
 - Optional automatic "idle" after a configurable period of system inactivity.
 - Sign-in through the server's OpenID Connect provider in your browser; the API key is stored in the GNOME keyring, no password is ever stored. Servers with password login, or pasting an API key, work too.
 - Server URL can be set fleet-wide by an admin and overridden per user from the Settings dialog.

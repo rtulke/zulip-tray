@@ -53,3 +53,16 @@ def test_effective_admin_config_prefers_user_override(tmp_path, monkeypatch):
         config.effective_admin_config(s)
     s.server_url_override = "https://other.example"
     assert config.effective_admin_config(s).server_url == "https://other.example"
+
+
+def test_favorites_roundtrip_and_validation(tmp_path):
+    path = tmp_path / "settings.json"
+    s = config.UserSettings.load(path)
+    assert s.favorite_user_ids == []
+    s.favorite_user_ids = [9, 8, 9]
+    s.save()
+    assert config.UserSettings.load(path).favorite_user_ids == [9, 8]
+    data = json.loads(path.read_text())
+    data["contacts"]["favorites"] = [3, "x", True, None]
+    path.write_text(json.dumps(data))
+    assert config.UserSettings.load(path).favorite_user_ids == [3]

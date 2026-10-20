@@ -10,7 +10,7 @@ def make():
     state = SessionState(user_id=7, email="me@example.com", full_name="Me", subscriptions={3: dict(SUB)},
                          user_settings={"enable_desktop_notifications": True, "presence_enabled": True})
     seen = {}
-    for name in ("notification", "own_presence", "user_setting_changed", "messages_read"):
+    for name in ("notification", "own_presence", "user_setting_changed", "messages_read", "contact_event"):
         getattr(worker, name).connect(lambda *args, n=name: seen.setdefault(n, []).append(args))
     return worker, state, seen
 
@@ -49,3 +49,18 @@ def test_settings_subscription_and_read_events():
     assert seen["user_setting_changed"] == [("presence_enabled", False)]
     assert 3 not in state.subscriptions and state.subscriptions[4]["name"] == "new"
     assert seen["messages_read"] == [([1, 2],), (None,)]
+
+
+def test_contact_relevant_events_are_forwarded():
+    worker, state, seen = make()
+    dm = {"type": "message", "flags": [], "message": {
+        "id": 2, "type": "private", "sender_id": 9, "sender_full_name": "Bob", "content": "hi",
+        "display_recipient": [{"id": 7, "full_name": "Me"}, {"id": 9, "full_name": "Bob"}]}}
+    channel = {"type": "message", "flags": [], "message": {
+        "id": 3, "type": "stream", "sender_id": 9, "stream_id": 3, "display_recipient": "general", "subject": "t"}}
+    presence = {"type": "presence", "presences": {"9": {"active_timestamp": 1}}}
+    realm_user = {"type": "realm_user", "op": "update", "person": {"user_id": 9, "full_name": "Robert"}}
+    for event in (dm, channel, presence, realm_user):
+        worker._handle_event(event, state)
+    flush_main_loop()
+    assert seen["contact_event"] == [(dm,), (presence,), (realm_user,)]

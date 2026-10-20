@@ -68,7 +68,8 @@ class SettingsDialog(Gtk.Dialog):
     def __init__(
         self, settings, current_server_url: str, current_verify_ssl: bool, current_autostart_enabled: bool,
         current_email: str, on_test_sound: Callable[[], None], on_update_server: Callable[[str, bool], None],
-        on_reset_login: Callable[[], None], on_set_autostart: Callable[[bool], None], parent=None,
+        on_reset_login: Callable[[], None], on_set_autostart: Callable[[bool], None],
+        users: list[tuple[int, str]] | None = None, parent=None,
     ):
         super().__init__(title=tr("settings.title"), transient_for=parent, modal=False)
         self._settings = settings
@@ -167,6 +168,12 @@ class SettingsDialog(Gtk.Dialog):
             _row(duration_label, idle_box, expand_last=True),
         ])
 
+        # --- favorites --------------------------------------------------------------------
+        # users is None while not connected: without the realm's user list
+        # there are no names to show, and the stored favorites stay as they are.
+        self._favorite_checks: dict[int, Gtk.CheckButton] = {}
+        favorites_card = self._build_favorites_card(users, set(settings.favorite_user_ids))
+
         # --- layout ---------------------------------------------------------------------
         stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.NONE, hexpand=True, vexpand=True)
         for name, label, page in [
@@ -175,6 +182,8 @@ class SettingsDialog(Gtk.Dialog):
             ("notifications", tr("settings.section_notifications"),
              _page(tr("settings.section_notifications"), notifications_card)),
             ("presence", tr("settings.section_presence"), _page(tr("settings.section_presence"), presence_card)),
+            ("favorites", tr("settings.section_favorites"),
+             _page(tr("settings.section_favorites"), favorites_card)),
         ]:
             stack.add_titled(page, name, label)
         sidebar = Gtk.StackSidebar(stack=stack)
@@ -191,6 +200,35 @@ class SettingsDialog(Gtk.Dialog):
         self.set_default_response(Gtk.ResponseType.OK)
         self.connect("response", self._handle_response)
         content.show_all()
+
+    def _build_favorites_card(self, users: list[tuple[int, str]] | None, favorites: set[int]) -> Gtk.Frame:
+        if users is None:
+            return _boxed_list([_row(_label(tr("settings.favorites_unavailable")))])
+        search = Gtk.SearchEntry(placeholder_text=tr("settings.favorites_search"), hexpand=True)
+        listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        for user_id, full_name in users:
+            check = Gtk.CheckButton(label=full_name, active=user_id in favorites)
+            for side in ("top", "bottom", "start", "end"):
+                getattr(check, f"set_margin_{side}")(4 if side in ("top", "bottom") else 14)
+            self._favorite_checks[user_id] = check
+            row = Gtk.ListBoxRow(activatable=False, selectable=False)
+            row.add(check)
+            row.full_name = full_name.casefold()
+            listbox.add(row)
+        listbox.set_filter_func(lambda row: search.get_text().strip().casefold() in row.full_name)
+        search.connect("search-changed", lambda *_: listbox.invalidate_filter())
+        scrolled = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scrolled.set_min_content_height(240)
+        scrolled.add(listbox)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        for side in ("top", "bottom", "start", "end"):
+            getattr(box, f"set_margin_{side}")(ROW_MARGIN)
+        box.pack_start(_label(tr("settings.favorites_hint")), False, False, 0)
+        box.pack_start(search, False, False, 0)
+        box.pack_start(scrolled, True, True, 0)
+        frame = Gtk.Frame()
+        frame.add(box)
+        return frame
 
     def _handle_test_sound(self) -> None:
         # Apply the current volume/choice first so "Test" previews exactly
@@ -215,4 +253,6 @@ class SettingsDialog(Gtk.Dialog):
         settings.idle_threshold_minutes = int(self._idle_scale.get_value()) * 5
         settings.sound_choice = self._sound_combo.get_active_id() or settings.sound_choice
         settings.sound_volume = self._volume_scale.get_value() / 100
+        if self._favorite_checks:
+            settings.favorite_user_ids = [uid for uid, check in self._favorite_checks.items() if check.get_active()]
         settings.save()

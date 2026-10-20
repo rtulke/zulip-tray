@@ -137,6 +137,8 @@ class ZulipTrayApplication(Gtk.Application):
         worker.own_presence.connect(self.presence.note_server_presence)
         worker.user_setting_changed.connect(self.presence.note_user_setting)
         worker.messages_read.connect(self.tray.messages_read)
+        worker.contacts_loaded.connect(self.tray.set_contacts)
+        worker.contact_event.connect(self.tray.apply_contact_event)
         self.presence.status_applied.connect(self.tray.set_presence_status)
         self.presence.forced_status_changed.connect(self.tray.set_forced_status)
         self.idle_watcher.became_idle.connect(self.presence.apply)
@@ -217,7 +219,7 @@ class ZulipTrayApplication(Gtk.Application):
         dialog = SettingsDialog(
             self.settings, self.admin_config.server_url, self.admin_config.verify_ssl, autostart.is_enabled(),
             self.settings.email, self.notifier.play_test_sound, self.update_server, self.reenter_login,
-            autostart.set_enabled,
+            autostart.set_enabled, users=self.tray.contacts.users() if self.tray.contacts else None,
         )
 
         def on_response(_dialog, response_id: int) -> None:
@@ -225,6 +227,7 @@ class ZulipTrayApplication(Gtk.Application):
                 self.idle_watcher.set_threshold_minutes(self.settings.idle_threshold_minutes)
                 self.idle_watcher.set_enabled(self.settings.idle_detection_enabled)
                 self.presence.apply()
+                self.tray.refresh_contacts()
             dialog.destroy()
 
         dialog.connect("response", on_response)

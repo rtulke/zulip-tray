@@ -47,6 +47,11 @@ DEFAULT_SETTINGS = {
     "browser": {
         "app_mode_enabled": False,
     },
+    "contacts": {
+        # Zulip user ids pinned at the top of the tray's contacts menu.
+        # Local to this machine: Zulip itself has no favorite users.
+        "favorites": [],
+    },
 }
 
 
@@ -243,6 +248,17 @@ class UserSettings:
     @app_mode_enabled.setter
     def app_mode_enabled(self, value: bool) -> None:
         self._data["browser"]["app_mode_enabled"] = value
+
+    # --- contacts --------------------------------------------------------------
+
+    @property
+    def favorite_user_ids(self) -> list[int]:
+        # Tolerates a hand-edited file: anything that isn't an int is dropped.
+        return [uid for uid in self._data["contacts"]["favorites"] if isinstance(uid, int) and not isinstance(uid, bool)]
+
+    @favorite_user_ids.setter
+    def favorite_user_ids(self, value: list[int]) -> None:
+        self._data["contacts"]["favorites"] = list(dict.fromkeys(int(uid) for uid in value))
 
 
 def effective_admin_config(settings: UserSettings) -> AdminConfig:
