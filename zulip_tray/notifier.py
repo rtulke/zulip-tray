@@ -10,6 +10,7 @@ gi.require_version("Notify", "0.7")
 from gi.repository import GLib, Notify  # noqa: E402
 
 from . import sounds
+from .i18n import tr
 from .notifications import Notification
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class NotificationManager:
         self._settings = settings
         self._icon_name = icon_name
         self._on_conversation_clicked: Callable[[str], None] | None = None
+        self._on_reply: Callable[[Notification, str | None], None] | None = None
         # libnotify drops action callbacks once the Notification object is
         # garbage-collected -- keep every shown one alive until it closes.
         self._live: dict[int, Notify.Notification] = {}
@@ -41,6 +43,10 @@ class NotificationManager:
     def set_click_handler(self, handler: Callable[[str], None]) -> None:
         """handler(conversation_key) runs when a notification body is clicked."""
         self._on_conversation_clicked = handler
+
+    def set_reply_handler(self, handler: Callable[[Notification, str | None], None]) -> None:
+        """handler(notification, activation_token) runs on the "Reply" button."""
+        self._on_reply = handler
 
     def notify(self, notification: Notification) -> None:
         if self._available:
@@ -56,6 +62,7 @@ class NotificationManager:
         notice.set_hint("desktop-entry", GLib.Variant("s", APP_ID))
         key = notification.conversation.key
         notice.add_action("default", "Open", self._handle_action, key)
+        notice.add_action("reply", tr("notify.reply"), self._handle_reply, notification)
         notice.connect("closed", self._handle_closed)
         try:
             notice.show()
@@ -67,6 +74,13 @@ class NotificationManager:
     def _handle_action(self, notice: Notify.Notification, action: str, key: str) -> None:
         if action == "default" and self._on_conversation_clicked:
             self._on_conversation_clicked(key)
+
+    def _handle_reply(self, notice: Notify.Notification, _action: str, notification: Notification) -> None:
+        if self._on_reply:
+            # libnotify >= 0.8: the shell's xdg-activation token, so the
+            # reply window may take the focus on Wayland.
+            get_token = getattr(notice, "get_activation_token", None)
+            self._on_reply(notification, get_token() if get_token else None)
 
     def _handle_closed(self, notice: Notify.Notification) -> None:
         self._live.pop(id(notice), None)

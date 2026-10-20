@@ -21,6 +21,7 @@ from .idle_watch import IdleWatcher  # noqa: E402
 from .mainloop import run_on_main, spawn  # noqa: E402
 from .notifier import NotificationManager  # noqa: E402
 from .presence import PresenceCoordinator  # noqa: E402
+from .reply_window import ReplyWindow  # noqa: E402
 from .settings_dialog import SettingsDialog  # noqa: E402
 from .tray import TrayController  # noqa: E402
 from .worker import ZulipWorker  # noqa: E402
@@ -48,6 +49,7 @@ class ZulipTrayApplication(Gtk.Application):
         # `zulip-tray --search` while nothing ran yet: open the search
         # window once the first connection has delivered the people.
         self.search_pending = False
+        self._reply_windows: dict[str, ReplyWindow] = {}  # conversation key -> open window
 
     # --- Gio.Application hooks ---------------------------------------------------------
 
@@ -128,6 +130,7 @@ class ZulipTrayApplication(Gtk.Application):
             on_quit=self.quit_app,
         )
         self.notifier.set_click_handler(self.tray.handle_conversation_click)
+        self.notifier.set_reply_handler(self.open_reply)
 
         # Everything below arrives from the worker thread via the main loop
         # (Signal.emit_from_thread) -- handlers may touch widgets.
@@ -244,6 +247,44 @@ class ZulipTrayApplication(Gtk.Application):
 
         dialog.connect("response", on_response)
         dialog.present()
+
+    def open_reply(self, notification, activation_token: str | None = None) -> None:
+        key = notification.conversation.key
+        window = self._reply_windows.get(key)
+        if window is None:
+            window = ReplyWindow(notification, lambda text, done: self._send_reply(notification, text, done))
+            window.connect("destroy", lambda *_: self._reply_windows.pop(key, None))
+            self._reply_windows[key] = window
+        if activation_token:
+            window.set_startup_id(activation_token)
+        window.present()
+
+    def _send_reply(self, notification, text: str, on_done) -> None:
+        api = self.worker.api
+        if api is None:
+            on_done(tr("reply.not_connected"))
+            return
+        conversation = notification.conversation
+        read_ids = self.tray.unread_message_ids(conversation.key) | {notification.message_id}
+
+        def push() -> None:
+            try:
+                if conversation.is_dm:
+                    api.send_message("direct", list(conversation.recipient_ids), text)
+                else:
+                    api.send_message("channel", conversation.stream_id, text, topic=conversation.topic)
+            except zulip_api.ApiError as exc:
+                logger.warning("Antwort konnte nicht gesendet werden: %s", exc)
+                run_on_main(on_done, str(exc))
+                return
+            try:
+                api.mark_read(list(read_ids))
+            except zulip_api.ApiError as exc:
+                logger.warning("Nachrichten konnten nicht als gelesen markiert werden: %s", exc)
+            run_on_main(self.tray.clear_unread, conversation.key)
+            run_on_main(on_done, None)
+
+        spawn(push, name="reply")
 
     def _chat_color_scheme(self) -> str | None:
         """The web chat's colours (Zulip account setting color_scheme) as

@@ -34,6 +34,10 @@ class Conversation:
     label: str
     fragment: str
     is_dm: bool
+    # Where a reply goes: the other DM participants, or channel + topic.
+    recipient_ids: tuple[int, ...] = ()
+    stream_id: int | None = None
+    topic: str | None = None
 
 
 @dataclass
@@ -84,7 +88,7 @@ def conversation_for(message: dict, own_user_id: int) -> Conversation:
             label = others[0].get("full_name") or sender if others else sender
             name = label
         return Conversation(key=f"dm:{','.join(str(i) for i in sorted(ids))}", label=label,
-                            fragment=dm_fragment(ids, name), is_dm=True)
+                            fragment=dm_fragment(ids, name), is_dm=True, recipient_ids=tuple(sorted(ids)))
     stream_id = message.get("stream_id")
     stream_name = message.get("display_recipient") if isinstance(message.get("display_recipient"), str) else ""
     topic = message.get("subject", "")
@@ -93,6 +97,8 @@ def conversation_for(message: dict, own_user_id: int) -> Conversation:
         label=tr("tray.missed_topic_entry", stream=stream_name, topic=topic),
         fragment=stream_fragment(stream_id, stream_name, topic),
         is_dm=False,
+        stream_id=stream_id,
+        topic=topic,
     )
 
 

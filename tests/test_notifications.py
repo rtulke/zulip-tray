@@ -126,3 +126,12 @@ def test_muted_unmuted_and_followed_topics():
     assert evaluate_message(stream_msg(5, "muted", "Watched"), [], OWN, SUBS, SETTINGS, policies)
     assert evaluate_message(stream_msg(3, topic="Release"), [], OWN, SUBS,
                             {**SETTINGS, "enable_followed_topic_desktop_notifications": False}, policies) is None
+
+
+def test_conversation_carries_reply_target():
+    direct = conversation_for(dm(), OWN)
+    assert direct.recipient_ids == (5,) and direct.stream_id is None
+    group = conversation_for(dm(recipients=(ALICE, ME, BOB)), OWN)
+    assert group.recipient_ids == (5, 9)
+    channel = conversation_for(stream_msg(topic="Lunch Plans"), OWN)
+    assert (channel.stream_id, channel.topic, channel.recipient_ids) == (3, "Lunch Plans", ())

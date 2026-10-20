@@ -356,6 +356,10 @@ class TrayController:
         self._refresh_unread_display()
         self._refresh_missed_menu()
 
+    def unread_message_ids(self, key: str) -> set[int]:
+        entry = self._unread.get(key)
+        return set(entry.message_ids) if entry else set()
+
     def clear_unread(self, key: str) -> None:
         self._unread.pop(key, None)
         self._refresh_unread_display()

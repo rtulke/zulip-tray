@@ -247,6 +247,16 @@ class ZulipApi:
         return body["id"]
 
 
+    def mark_read(self, message_ids: list[int]) -> None:
+        """POST /messages/flags: what the web client does when a reply is
+        sent from the conversation view, so the server's unread counts
+        (and every other client) agree with the reply from the tray."""
+        if message_ids:
+            self._request("POST", "messages/flags", data={
+                "messages": json.dumps(sorted(message_ids)), "op": "add", "flag": "read",
+            })
+
+
 def presence_status(entry: dict | None, now: float, offline_after: float = DEFAULT_OFFLINE_THRESHOLD_SECONDS) -> str:
     """Collapse one user's modern-format presence entry
     ({active_timestamp, idle_timestamp}, each the newest ping of that kind

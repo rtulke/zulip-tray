@@ -3,7 +3,7 @@
 A small GNOME system-tray client for [Zulip](https://zulip.com/): your own presence as a colour-coded tray icon, desktop notifications for new messages, and your status right in the tray menu — without running the Electron desktop app. The chat itself opens in the web client.
 
 - Tray icon mirrors your presence as the server sees it across all your clients: green (active), orange (idle), grey (offline or invisible). Changes made in the web or mobile client show up here too.
-- Desktop notifications according to your Zulip notification settings (direct messages, mentions, channels with desktop notifications on; muted channels and muted topics stay quiet, followed topics notify), with click-to-open-that-conversation. Messages you read elsewhere drop out of the "missed messages" list automatically.
+- Desktop notifications according to your Zulip notification settings (direct messages, mentions, channels with desktop notifications on; muted channels and muted topics stay quiet, followed topics notify), with click-to-open-that-conversation and a Reply button that opens a small answer window (Enter sends). Messages you read elsewhere drop out of the "missed messages" list automatically.
 - Configurable notification sound from the system's GNOME/freedesktop sound theme (or the bundled chime).
 - Status menu: automatic, online, away, invisible — plus a status text.
 - Direct messages menu: a search window over everyone in the organization, your favorite people (picked in Settings, stored locally) and the people you most recently exchanged direct messages with, grouped by today, yesterday, last week and older, each with their presence, unread count and the time or date of the last message; one click opens the conversation. Group DMs are left out.
