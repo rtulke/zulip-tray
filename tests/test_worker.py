@@ -64,3 +64,17 @@ def test_contact_relevant_events_are_forwarded():
         worker._handle_event(event, state)
     flush_main_loop()
     assert seen["contact_event"] == [(dm,), (presence,), (realm_user,)]
+
+
+def test_user_topic_events_update_topic_policies():
+    worker, state, seen = make()
+    msg = {"type": "message", "flags": [], "message": {
+        "id": 4, "type": "stream", "sender_id": 9, "sender_full_name": "Bob", "stream_id": 3,
+        "display_recipient": "general", "subject": "Noise", "content": "hi"}}
+    worker._handle_event({"type": "user_topic", "stream_id": 3, "topic_name": "noise", "visibility_policy": 1}, state)
+    worker._handle_event(msg, state)
+    worker._handle_event({"type": "user_topic", "stream_id": 3, "topic_name": "Noise", "visibility_policy": 0}, state)
+    worker._handle_event(msg, state)
+    flush_main_loop()
+    assert state.topic_policies == {}
+    assert len(seen["notification"]) == 1

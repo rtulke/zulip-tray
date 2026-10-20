@@ -21,7 +21,9 @@ USER_AGENT = f"ZulipTray/{__version__}"
 
 # Event types this client consumes (see worker.py). "heartbeat" events
 # arrive regardless; presence pings are a separate endpoint, not events.
-EVENT_TYPES = ["message", "presence", "user_settings", "subscription", "update_message_flags", "realm_user"]
+EVENT_TYPES = [
+    "message", "presence", "user_settings", "subscription", "update_message_flags", "realm_user", "user_topic",
+]
 # Initial state only: recent_private_conversations has no events of its
 # own, the client keeps it current from message events (contacts.py).
 FETCH_EVENT_TYPES = [*EVENT_TYPES, "recent_private_conversations"]
@@ -145,7 +147,7 @@ class ZulipApi:
         """POST /register with exactly what this client needs. The response
         carries the initial state for the requested event types:
         subscriptions (per-stream notification flags), user_settings,
-        presences, realm_users and recent_private_conversations (the
+        user_topics (muted/followed topics), presences, realm_users and recent_private_conversations (the
         tray's contacts menu), plus queue_id/last_event_id and the
         server's own presence/long-poll timing constants."""
         return self._request(

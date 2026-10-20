@@ -25,15 +25,16 @@ class _AuthFailure(Exception):
 class SessionState:
     """What the event loop needs to turn a message event into a
     notification decision: the subscription table (per-stream
-    notification flags, mute state) and the user's notification settings,
-    both seeded from the register response and kept current by
-    subscription/user_settings events."""
+    notification flags, mute state), muted/followed topics and the user's
+    notification settings, all seeded from the register response and kept
+    current by subscription/user_topic/user_settings events."""
 
     user_id: int
     email: str
     full_name: str
     subscriptions: dict[int, dict] = field(default_factory=dict)
     user_settings: dict = field(default_factory=dict)
+    topic_policies: dict = field(default_factory=dict)  # notifications.topic_key -> visibility_policy
     offline_threshold: float = zulip_api.DEFAULT_OFFLINE_THRESHOLD_SECONDS
     longpoll_timeout: float = zulip_api.DEFAULT_LONGPOLL_TIMEOUT_SECONDS
 
@@ -166,6 +167,7 @@ class ZulipWorker(threading.Thread):
             sub["stream_id"]: sub for sub in registration.get("subscriptions", []) if "stream_id" in sub
         }
         state.user_settings = dict(registration.get("user_settings") or {})
+        state.topic_policies = notifications.topic_policies_from(registration.get("user_topics"))
         state.offline_threshold = registration.get(
             "server_presence_offline_threshold_seconds", zulip_api.DEFAULT_OFFLINE_THRESHOLD_SECONDS,
         )
@@ -212,7 +214,7 @@ class ZulipWorker(threading.Thread):
         if kind == "message":
             notification = notifications.evaluate_message(
                 event.get("message", {}), event.get("flags", []), state.user_id, state.subscriptions,
-                state.user_settings,
+                state.user_settings, state.topic_policies,
             )
             if notification:
                 self.notification.emit_from_thread(notification)
@@ -236,6 +238,13 @@ class ZulipWorker(threading.Thread):
                 self.user_setting_changed.emit_from_thread(prop, value)
         elif kind == "subscription":
             self._handle_subscription_event(event, state)
+        elif kind == "user_topic":
+            key = notifications.topic_key(event.get("stream_id"), event.get("topic_name", ""))
+            policy = event.get("visibility_policy", notifications.TOPIC_INHERIT)
+            if policy == notifications.TOPIC_INHERIT:
+                state.topic_policies.pop(key, None)
+            else:
+                state.topic_policies[key] = policy
         elif kind == "realm_user":
             self.contact_event.emit_from_thread(event)
         elif kind == "update_message_flags" and event.get("flag") == "read" and event.get("op") == "add":

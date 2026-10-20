@@ -1,5 +1,6 @@
 from zulip_tray.notifications import (
-    clean_content, conversation_for, dm_fragment, encode_hash_component, evaluate_message, stream_fragment,
+    TOPIC_FOLLOWED, TOPIC_MUTED, TOPIC_UNMUTED, clean_content, conversation_for, dm_fragment,
+    encode_hash_component, evaluate_message, stream_fragment, topic_policies_from,
 )
 
 OWN = 7
@@ -101,3 +102,27 @@ def test_topic_key_is_case_insensitive():
     a = conversation_for(stream_msg(3, topic="Lunch"), OWN)
     b = conversation_for(stream_msg(3, topic="lunch"), OWN)
     assert a.key == b.key
+
+
+def test_muted_unmuted_and_followed_topics():
+    loud = {**SETTINGS, "enable_stream_desktop_notifications": True}
+    policies = topic_policies_from([
+        {"stream_id": 4, "topic_name": "Noise", "visibility_policy": TOPIC_MUTED},
+        {"stream_id": 5, "topic_name": "Important", "visibility_policy": TOPIC_UNMUTED},
+        {"stream_id": 3, "topic_name": "Release", "visibility_policy": TOPIC_FOLLOWED},
+        {"stream_id": 5, "topic_name": "Watched", "visibility_policy": TOPIC_FOLLOWED},
+        {"stream_id": 3, "topic_name": "Undone", "visibility_policy": 0},
+    ])
+    assert (3, "undone") not in policies
+    # muted topic in a loud channel: quiet, except personal mentions; case-insensitive
+    assert evaluate_message(stream_msg(4, "loud", "noise"), [], OWN, SUBS, SETTINGS, policies) is None
+    assert evaluate_message(stream_msg(4, "loud", "Noise"), ["wildcard_mentioned"], OWN, SUBS, loud, policies) is None
+    assert evaluate_message(stream_msg(4, "loud", "Noise"), ["mentioned"], OWN, SUBS, SETTINGS, policies)
+    assert evaluate_message(stream_msg(4, "loud", "Other"), [], OWN, SUBS, SETTINGS, policies)
+    # unmuted topic in a muted channel behaves like an ordinary topic there
+    assert evaluate_message(stream_msg(5, "muted", "Important"), [], OWN, SUBS, SETTINGS, policies)
+    # followed: notifies although channel notifications are off, per the followed-topic setting
+    assert evaluate_message(stream_msg(3, topic="Release"), [], OWN, SUBS, SETTINGS, policies)
+    assert evaluate_message(stream_msg(5, "muted", "Watched"), [], OWN, SUBS, SETTINGS, policies)
+    assert evaluate_message(stream_msg(3, topic="Release"), [], OWN, SUBS,
+                            {**SETTINGS, "enable_followed_topic_desktop_notifications": False}, policies) is None
