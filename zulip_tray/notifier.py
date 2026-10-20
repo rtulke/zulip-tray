@@ -62,7 +62,7 @@ class NotificationManager:
         notice.set_hint("desktop-entry", GLib.Variant("s", APP_ID))
         key = notification.conversation.key
         notice.add_action("default", "Open", self._handle_action, key)
-        if offers_reply(notification.conversation, self._settings.reply_in_channels):
+        if offers_reply(notification.conversation, self._settings.reply_button):
             notice.add_action("reply", tr("notify.reply"), self._handle_reply, notification)
         notice.connect("closed", self._handle_closed)
         try:

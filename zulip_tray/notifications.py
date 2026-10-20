@@ -102,10 +102,13 @@ def conversation_for(message: dict, own_user_id: int) -> Conversation:
     )
 
 
-def offers_reply(conversation: Conversation, reply_in_channels: bool) -> bool:
-    """Whether a notification gets the Reply button: always for direct
-    messages, for channel topics only when enabled in the settings."""
-    return conversation.is_dm or reply_in_channels
+def offers_reply(conversation: Conversation, reply_button: str) -> bool:
+    """Whether a notification gets the Reply button, per the setting
+    (config.REPLY_BUTTON_OPTIONS): never, for direct messages, or for
+    channel topics too."""
+    if reply_button == "all":
+        return True
+    return reply_button == "direct" and conversation.is_dm
 
 
 def topic_key(stream_id: int | None, topic: str) -> tuple[int | None, str]:

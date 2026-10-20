@@ -8,7 +8,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk  # noqa: E402
 
 from . import sounds
-from .config import COLOR_SCHEMES
+from .config import COLOR_SCHEMES, REPLY_BUTTON_OPTIONS
 from .i18n import tr
 
 ROW_MARGIN = 10
@@ -108,7 +108,11 @@ class SettingsDialog(Gtk.Dialog):
         self._blink_switch = Gtk.Switch(active=settings.blink_enabled)
         self._sound_switch = Gtk.Switch(active=settings.sound_enabled)
         self._tooltip_switch = Gtk.Switch(active=settings.tooltip_enabled)
-        self._reply_channels_switch = Gtk.Switch(active=settings.reply_in_channels)
+        self._reply_combo = Gtk.ComboBoxText()
+        for option in REPLY_BUTTON_OPTIONS:
+            self._reply_combo.append(option, tr(f"settings.reply_button_{option}"))
+        if not self._reply_combo.set_active_id(settings.reply_button):
+            self._reply_combo.set_active(1)
         self._sound_combo = Gtk.ComboBoxText()
         for key, label, _path in sounds.available_choices():
             self._sound_combo.append(key, label)
@@ -138,7 +142,7 @@ class SettingsDialog(Gtk.Dialog):
             _row(_label(tr("settings.sound_choice")), self._sound_combo),
             _row(_label(tr("settings.volume")), volume_box, expand_last=True),
             _row(_label(tr("settings.tooltip")), self._tooltip_switch),
-            _row(_label(tr("settings.reply_in_channels")), self._reply_channels_switch),
+            _row(_label(tr("settings.reply_button")), self._reply_combo),
         ])
 
         # --- away -----------------------------------------------------------------------
@@ -279,7 +283,7 @@ class SettingsDialog(Gtk.Dialog):
         settings.blink_enabled = self._blink_switch.get_active()
         settings.sound_enabled = self._sound_switch.get_active()
         settings.tooltip_enabled = self._tooltip_switch.get_active()
-        settings.reply_in_channels = self._reply_channels_switch.get_active()
+        settings.reply_button = self._reply_combo.get_active_id() or "direct"
         settings.app_mode_enabled = self._app_mode_switch.get_active()
         settings.idle_detection_enabled = self._idle_switch.get_active()
         settings.idle_threshold_minutes = int(self._idle_scale.get_value()) * 5

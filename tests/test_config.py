@@ -27,9 +27,9 @@ def test_admin_config_errors(tmp_path):
 def test_user_settings_roundtrip_and_validation(tmp_path):
     path = tmp_path / "settings.json"
     s = config.UserSettings.load(path)
-    assert s.forced_status == "auto" and s.email == "" and s.reply_in_channels is False
+    assert s.forced_status == "auto" and s.email == "" and s.reply_button == "direct"
     s.forced_status = "invisible"
-    s.reply_in_channels = True
+    s.reply_button = "off"
     s.idle_threshold_minutes = 23  # snaps to 25
     s.email = " Alice@example.com "
     s.sound_volume = 1.7
@@ -37,7 +37,15 @@ def test_user_settings_roundtrip_and_validation(tmp_path):
     again = config.UserSettings.load(path)
     assert again.forced_status == "invisible" and again.idle_threshold_minutes == 25
     assert again.email == "Alice@example.com" and again.sound_volume == 1.0
-    assert again.reply_in_channels is True
+    assert again.reply_button == "off"
+    s.reply_button = "bogus"
+    assert s.reply_button == "direct"
+    # 0.4.2's boolean switch carries over
+    data = json.loads(path.read_text())
+    data["notifications"].pop("reply_button")
+    data["notifications"]["reply_in_channels"] = True
+    path.write_text(json.dumps(data))
+    assert config.UserSettings.load(path).reply_button == "all"
     with pytest.raises(ValueError):
         s.forced_status = "busy"
     # unknown status in a hand-edited file falls back to auto

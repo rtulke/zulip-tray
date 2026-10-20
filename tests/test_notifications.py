@@ -137,7 +137,7 @@ def test_conversation_carries_reply_target():
     assert (channel.stream_id, channel.topic, channel.recipient_ids) == (3, "Lunch Plans", ())
 
 
-def test_reply_button_for_dms_always_for_channels_on_request():
-    assert offers_reply(conversation_for(dm(), OWN), False)
-    assert not offers_reply(conversation_for(stream_msg(), OWN), False)
-    assert offers_reply(conversation_for(stream_msg(), OWN), True)
+def test_reply_button_per_setting():
+    direct, channel = conversation_for(dm(), OWN), conversation_for(stream_msg(), OWN)
+    assert [offers_reply(direct, o) for o in ("off", "direct", "all")] == [False, True, True]
+    assert [offers_reply(channel, o) for o in ("off", "direct", "all")] == [False, False, True]

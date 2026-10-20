@@ -20,6 +20,10 @@ USER_SETTINGS_PATH = Path.home() / ".config" / "zulip-tray" / "settings.json"
 # presence_enabled=false (others see you as offline). Zulip has no "busy".
 STATUS_OPTIONS = ("auto", "online", "away", "invisible")
 
+# Which notifications get the Reply button: none, direct messages only,
+# or channel messages too (a channel reply is public, hence not default).
+REPLY_BUTTON_OPTIONS = ("off", "direct", "all")
+
 # Light/dark choice for the tray's own windows and for the Zulip web chat:
 # "system" follows GNOME's style switch.
 COLOR_SCHEMES = ("system", "light", "dark")
@@ -31,10 +35,10 @@ DEFAULT_SETTINGS = {
         "sound_volume": 0.7,
         "sound_choice": DEFAULT_SOUND_CHOICE,
         "tooltip_enabled": True,
-        # The notification's Reply button for channel messages too, not
-        # only direct messages. Off by default: the answer window shows one
-        # message without its thread, and a channel reply is public.
-        "reply_in_channels": False,
+        # One of REPLY_BUTTON_OPTIONS. "direct" by default: the answer
+        # window shows one message without its thread, and a channel reply
+        # is public.
+        "reply_button": "direct",
     },
     "presence": {
         "forced_status": "auto",
@@ -181,12 +185,17 @@ class UserSettings:
         self._data["notifications"]["tooltip_enabled"] = value
 
     @property
-    def reply_in_channels(self) -> bool:
-        return bool(self._data["notifications"]["reply_in_channels"])
+    def reply_button(self) -> str:
+        notifications = self._data["notifications"]
+        value = notifications.get("reply_button")
+        if notifications.get("reply_in_channels") is True and value == "direct":
+            value = "all"  # 0.4.2 stored a boolean switch instead
+        return value if value in REPLY_BUTTON_OPTIONS else "direct"
 
-    @reply_in_channels.setter
-    def reply_in_channels(self, value: bool) -> None:
-        self._data["notifications"]["reply_in_channels"] = bool(value)
+    @reply_button.setter
+    def reply_button(self, value: str) -> None:
+        self._data["notifications"]["reply_button"] = value if value in REPLY_BUTTON_OPTIONS else "direct"
+        self._data["notifications"].pop("reply_in_channels", None)
 
     # --- presence --------------------------------------------------------------
 
