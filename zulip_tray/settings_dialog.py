@@ -8,6 +8,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk  # noqa: E402
 
 from . import sounds
+from .dialog_layout import pad_button_row
 from .config import CLICK_ACTIONS, COLOR_SCHEMES, RECENT_RANGES, REPLY_BUTTON_OPTIONS
 from .i18n import tr
 
@@ -21,6 +22,10 @@ def _row(*widgets: Gtk.Widget, expand_last: bool = False) -> Gtk.ListBoxRow:
     for side in ("top", "bottom", "start", "end"):
         getattr(box, f"set_margin_{side}")(ROW_MARGIN if side in ("top", "bottom") else 14)
     for index, widget in enumerate(widgets):
+        # Centred, not stretched: a label wrapping onto two lines makes
+        # the row taller, and a Gtk.Switch filling that height looks
+        # swollen next to the one-line rows.
+        widget.set_valign(Gtk.Align.CENTER)
         last = index == len(widgets) - 1
         if last and not expand_last:
             widget.set_halign(Gtk.Align.END)
@@ -245,6 +250,7 @@ class SettingsDialog(Gtk.Dialog):
         self.add_button(tr("common.cancel"), Gtk.ResponseType.CANCEL)
         save_button = self.add_button(tr("settings.save"), Gtk.ResponseType.OK)
         save_button.get_style_context().add_class("suggested-action")
+        pad_button_row(save_button)
         self.set_default_response(Gtk.ResponseType.OK)
         self.connect("response", self._handle_response)
         content.show_all()

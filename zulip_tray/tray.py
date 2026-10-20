@@ -12,6 +12,7 @@ from gi.repository import AyatanaAppIndicator3 as AppIndicator, GLib, Gtk  # noq
 
 from .config import STATUS_OPTIONS
 from .contact_search import ContactSearchWindow
+from .dialog_layout import pad_button_row
 from .contacts import (
     RECENCY_BUCKETS, RECENT_LIMIT, Contact, ContactBook, bucket_in_range, format_last_message, recency_bucket,
 )
@@ -472,6 +473,7 @@ class _StatusMessageDialog(Gtk.Dialog):
         self.add_button(tr("common.cancel"), Gtk.ResponseType.CANCEL)
         ok_button = self.add_button(tr("common.ok"), Gtk.ResponseType.OK)
         ok_button.get_style_context().add_class("suggested-action")
+        pad_button_row(ok_button)
         self.set_default_response(Gtk.ResponseType.OK)
         content.show_all()
         self._entry.grab_focus()

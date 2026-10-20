@@ -10,6 +10,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk  # noqa: E402
 
 from . import zulip_api
+from .dialog_layout import pad_button_row
 from .i18n import tr
 from .mainloop import run_on_main, spawn
 
@@ -184,7 +185,7 @@ class LoginDialog(Gtk.Dialog):
         expander.set_expanded(not self._browser_method and not self._password_available)
         content.pack_start(expander, False, False, 0)
 
-        self.add_button(tr("common.cancel"), Gtk.ResponseType.CANCEL)
+        pad_button_row(self.add_button(tr("common.cancel"), Gtk.ResponseType.CANCEL))
         if self._password_available:
             login_button = self.add_button(tr("auth.login_button"), Gtk.ResponseType.APPLY)
             login_button.get_style_context().add_class("suggested-action")
