@@ -87,7 +87,7 @@ class TrayController:
         self._email = ""
         self._updating_menu = False
         self._contacts: ContactBook | None = None
-        self._contacts_rendered: tuple | None = None
+        self._contacts_rendered: list | None = None
         self._search_window: ContactSearchWindow | None = None
 
         self._indicator = AppIndicator.Indicator.new(
@@ -120,6 +120,10 @@ class TrayController:
         self._contacts_menu = Gtk.Menu()
         self._contacts_item.set_submenu(self._contacts_menu)
         menu.append(self._contacts_item)
+        # DBusMenu cannot host a text entry, so the search opens a window.
+        self._search_item = Gtk.MenuItem(label=tr("tray.contacts_search"))
+        self._search_item.connect("activate", lambda *_: _defer(self.open_contact_search))
+        menu.append(self._search_item)
 
         menu.append(Gtk.SeparatorMenuItem())
         about_item = Gtk.MenuItem(label=tr("tray.about_action"))
@@ -145,6 +149,7 @@ class TrayController:
         menu.show_all()
         self._missed_item.hide()
         self._contacts_item.hide()
+        self._search_item.hide()
         self._reenter_login_item.hide()
         self._indicator.set_menu(menu)
         self._menu = menu  # keep a reference alive
@@ -271,7 +276,7 @@ class TrayController:
             self._search_window = None
 
     def refresh_contacts(self) -> None:
-        """The search entry, then favorites (by name), then the most recent 1:1 DM partners not
+        """Favorites (by name), then the most recent 1:1 DM partners not
         already listed, grouped into today / yesterday / last week / older,
         each with presence and the time or date of the last DM.
         The submenu is only rebuilt when its content actually changed --
@@ -293,18 +298,15 @@ class TrayController:
             # Same 60 s timer and events keep presence and dates current
             # in the open search window.
             self._search_window.set_book(book, self._settings.favorite_user_ids)
-        visible = book is not None
-        if (visible, rendered) == self._contacts_rendered:
+        self._search_item.set_visible(book is not None)
+        if rendered == self._contacts_rendered:
             return
-        self._contacts_rendered = (visible, rendered)
+        self._contacts_rendered = rendered
         for child in self._contacts_menu.get_children():
             self._contacts_menu.remove(child)
-        # DBusMenu cannot host a text entry, so the search opens a window.
-        search_item = Gtk.MenuItem(label=tr("tray.contacts_search"))
-        search_item.connect("activate", lambda *_: _defer(self.open_contact_search))
-        self._contacts_menu.append(search_item)
-        for header, entries in rendered:
-            self._contacts_menu.append(Gtk.SeparatorMenuItem())
+        for index, (header, entries) in enumerate(rendered):
+            if index:
+                self._contacts_menu.append(Gtk.SeparatorMenuItem())
             header_item = Gtk.MenuItem(label=tr(header))
             header_item.set_sensitive(False)
             self._contacts_menu.append(header_item)
@@ -313,7 +315,7 @@ class TrayController:
                 item.connect("activate", lambda _item, u=user_id, n=full_name: _defer(self._open_contact, u, n))
                 self._contacts_menu.append(item)
         self._contacts_menu.show_all()
-        self._contacts_item.set_visible(visible)
+        self._contacts_item.set_visible(bool(rendered))
 
     @staticmethod
     def _contact_entry(contact: Contact, now: float, day_in_header: bool = False) -> tuple[int, str, str]:
