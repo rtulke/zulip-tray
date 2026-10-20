@@ -45,12 +45,19 @@ class ZulipTrayApplication(Gtk.Application):
         self._activated_once = False
         self._login_dialog: auth.LoginDialog | None = None
         self._worker_started = False
+        # `zulip-tray --search` while nothing ran yet: open the search
+        # window once the first connection has delivered the people.
+        self.search_pending = False
 
     # --- Gio.Application hooks ---------------------------------------------------------
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
-        for name, handler in (("restart", self._handle_restart_action), ("quit", lambda *_: self.quit_app())):
+        for name, handler in (
+            ("restart", self._handle_restart_action),
+            ("quit", lambda *_: self.quit_app()),
+            ("search", self._handle_search_action),
+        ):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", handler)
             self.add_action(action)
@@ -138,6 +145,7 @@ class ZulipTrayApplication(Gtk.Application):
         worker.user_setting_changed.connect(self.presence.note_user_setting)
         worker.messages_read.connect(self.tray.messages_read)
         worker.contacts_loaded.connect(self.tray.set_contacts)
+        worker.contacts_loaded.connect(self._open_pending_search)
         worker.contact_event.connect(self.tray.apply_contact_event)
         self.presence.status_applied.connect(self.tray.set_presence_status)
         self.presence.forced_status_changed.connect(self.tray.set_forced_status)
@@ -265,6 +273,17 @@ class ZulipTrayApplication(Gtk.Application):
         self.worker.stop()
         self.quit()
 
+    def _handle_search_action(self, *_args) -> None:
+        if self.tray.contacts is None:
+            self.search_pending = True  # still connecting: open once connected
+        else:
+            self.tray.open_contact_search()
+
+    def _open_pending_search(self, _book) -> None:
+        if self.search_pending:
+            self.search_pending = False
+            self.tray.open_contact_search()
+
     def _handle_restart_action(self, *_args) -> None:
         # packaging/postinstall.sh triggers this after a .deb upgrade so
         # the running (now outdated) instance relaunches itself. The actual
@@ -282,7 +301,18 @@ def main() -> int:
     GLib.set_prgname("zulip-tray")
     GLib.set_application_name("Zulip Tray")
     app = ZulipTrayApplication()
-    exit_code = app.run(sys.argv)
+    argv = list(sys.argv)
+    if "--search" in argv:
+        # Person search, e.g. from a GNOME keyboard shortcut: hand it to the
+        # running instance as the "search" action over D-Bus, else start
+        # normally and open it once connected.
+        argv.remove("--search")
+        app.register(None)
+        if app.get_is_remote():
+            app.activate_action("search", None)
+            return 0
+        app.search_pending = True
+    exit_code = app.run(argv)
     if app.restart_requested:
         os.execv(sys.executable, [sys.executable, "-m", "zulip_tray.main"])
     return exit_code

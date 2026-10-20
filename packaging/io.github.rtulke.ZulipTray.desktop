@@ -8,3 +8,12 @@ Categories=Network;InstantMessaging;
 Terminal=false
 StartupNotify=false
 MimeType=x-scheme-handler/zulip;
+Actions=search;
+
+[Desktop Action search]
+Name=Find person
+Name[de]=Person suchen
+Name[fr]=Rechercher une personne
+Name[it]=Cerca persona
+Name[es]=Buscar persona
+Exec=/usr/bin/zulip-tray --search

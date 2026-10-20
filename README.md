@@ -63,6 +63,7 @@ sudo nano /etc/zulip-tray/config.conf              # set url to a real server
 .venv/bin/zulip-tray
 python3 -m pytest -q                                # unit tests (GTK parts need a display)
 zulip-tray-send alice,#general "Hello" --topic Test # send a message with the stored credentials
+zulip-tray --search                                 # open the person search (bind it to a keyboard shortcut)
 ```
 
 ### Building the `.deb`
