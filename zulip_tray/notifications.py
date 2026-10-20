@@ -16,6 +16,8 @@ BODY_MAX_CHARS = 240
 # user_topic visibility_policy values (Zulip 7+, feature level 170): a
 # topic can be muted in an ordinary channel, unmuted in a muted channel,
 # or followed; INHERIT means the channel's own mute state applies.
+# Shape confirmed live against Zulip 12.3: register returns user_topics as
+# [{stream_id, topic_name, visibility_policy, last_updated}].
 TOPIC_INHERIT, TOPIC_MUTED, TOPIC_UNMUTED, TOPIC_FOLLOWED = 0, 1, 2, 3
 
 _MENTION_RE = re.compile(r"@_?\*\*([^*]+)\*\*")
