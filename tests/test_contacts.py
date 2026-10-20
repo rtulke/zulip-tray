@@ -97,3 +97,24 @@ def test_recency_bucket():
     assert recency_bucket(at(2026, 10, 14, 0, 0), now) == "week"
     assert recency_bucket(at(2026, 10, 13, 23, 59), now) == "older"
     assert recency_bucket(None, now) == "older"
+
+
+def test_search_ranks_word_starts_favorites_and_recent_first():
+    people = {
+        "realm_users": [
+            {"user_id": 7, "full_name": "Me"},
+            {"user_id": 20, "full_name": "Anna Müller"},
+            {"user_id": 21, "full_name": "Hans Muster"},
+            {"user_id": 22, "full_name": "Samuel Brand"},
+            {"user_id": 23, "full_name": "José Mudd"},
+        ],
+        "recent_private_conversations": [{"user_ids": [22], "max_message_id": 9}],
+    }
+    book = ContactBook.from_registration(people, ME, 140)
+    names = lambda query, favorites=(): [c.full_name for c in book.search(query, favorites, NOW)]  # noqa: E731
+    assert names("") == ["Samuel Brand", "Anna Müller", "Hans Muster", "José Mudd"]
+    assert names("", favorites=[23]) == ["José Mudd", "Samuel Brand", "Anna Müller", "Hans Muster"]
+    # accent-insensitive; word starts beat matches inside a word ("saMUel")
+    assert names("mu") == ["Anna Müller", "Hans Muster", "José Mudd", "Samuel Brand"]
+    assert names("JOSE") == ["José Mudd"]
+    assert names("me") == []  # never oneself

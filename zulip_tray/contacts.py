@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import unicodedata
 from dataclasses import dataclass
 from datetime import date
 
@@ -17,12 +18,29 @@ TIMESTAMP_FETCH_LIMIT = 50
 RECENCY_BUCKETS = ("today", "yesterday", "week", "older")
 
 
+# DBusMenu labels are plain text, so presence is shown with colour emoji
+# (rendered by GNOME Shell via Noto Color Emoji); the search window uses
+# the same marks so both look alike.
+PRESENCE_MARKS = {"active": "🟢", "idle": "🟠", "offline": "⚪"}
+
+
 @dataclass(frozen=True)
 class Contact:
     user_id: int
     full_name: str
     status: str  # "active" | "idle" | "offline"
     last_message_ts: float | None
+
+    @property
+    def presence_mark(self) -> str:
+        return PRESENCE_MARKS.get(self.status, PRESENCE_MARKS["offline"])
+
+
+def fold(text: str) -> str:
+    """Case- and accent-insensitive form for the contact search, so
+    "muller" finds "Müller" and "jose" finds "José"."""
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold()
 
 
 def recency_bucket(ts: float | None, now: float) -> str:
@@ -180,6 +198,23 @@ class ContactBook:
         now = time.time() if now is None else now
         found = [self._contact(uid, now) for uid in dict.fromkeys(user_ids) if uid in self._users]
         return sorted(found, key=lambda c: c.full_name.casefold())
+
+    def search(self, query: str, favorites=(), now: float | None = None) -> list[Contact]:
+        """Every active human except oneself whose name contains query
+        (see fold). Names with a word starting with the query come first,
+        then favorites, then the most recent DM partners, then the rest by
+        name -- so an empty query lists favorites and recent people on top."""
+        now = time.time() if now is None else now
+        needle = fold(query.strip())
+        favorites = set(favorites)
+        ranked = []
+        for uid, name in self._users.items():
+            folded = fold(name)
+            if uid == self.own_user_id or needle not in folded:
+                continue
+            word_start = not needle or any(word.startswith(needle) for word in folded.split())
+            ranked.append(((not word_start, uid not in favorites, -self._last_message_id.get(uid, 0), folded), uid))
+        return [self._contact(uid, now) for _key, uid in sorted(ranked)]
 
     def users(self) -> list[tuple[int, str]]:
         """Every active human except oneself, sorted by name -- the choice

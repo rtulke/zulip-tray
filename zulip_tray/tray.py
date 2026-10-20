@@ -11,6 +11,7 @@ gi.require_version("AyatanaAppIndicator3", "0.1")
 from gi.repository import AyatanaAppIndicator3 as AppIndicator, GLib, Gtk  # noqa: E402
 
 from .config import STATUS_OPTIONS
+from .contact_search import ContactSearchWindow
 from .contacts import RECENCY_BUCKETS, RECENT_LIMIT, Contact, ContactBook, format_last_message, recency_bucket
 from .i18n import tr
 from .notifications import Notification, dm_fragment
@@ -38,10 +39,6 @@ STATUS_LABEL_KEYS = {
     "invisible": "tray.status_invisible",
 }
 
-
-# DBusMenu labels are plain text, so presence is shown with colour emoji
-# (rendered by GNOME Shell via Noto Color Emoji).
-PRESENCE_MARKS = {"active": "🟢", "idle": "🟠", "offline": "⚪"}
 
 
 class ConnectionState(Enum):
@@ -90,7 +87,8 @@ class TrayController:
         self._email = ""
         self._updating_menu = False
         self._contacts: ContactBook | None = None
-        self._contacts_rendered: list | None = None
+        self._contacts_rendered: tuple | None = None
+        self._search_window: ContactSearchWindow | None = None
 
         self._indicator = AppIndicator.Indicator.new(
             INDICATOR_ID, icon_name("offline"), AppIndicator.IndicatorCategory.APPLICATION_STATUS,
@@ -254,10 +252,26 @@ class TrayController:
 
     def _drop_contacts(self) -> None:
         self._contacts = None
+        if self._search_window is not None:
+            self._search_window.destroy()
         self.refresh_contacts()
 
+    def open_contact_search(self) -> None:
+        if self._contacts is None:
+            return
+        if self._search_window is None:
+            self._search_window = ContactSearchWindow(
+                self._contacts, self._settings.favorite_user_ids, self._open_contact,
+            )
+            self._search_window.connect("destroy", self._on_search_window_destroyed)
+        self._search_window.present()
+
+    def _on_search_window_destroyed(self, window) -> None:
+        if self._search_window is window:
+            self._search_window = None
+
     def refresh_contacts(self) -> None:
-        """Favorites (by name), then the most recent 1:1 DM partners not
+        """The search entry, then favorites (by name), then the most recent 1:1 DM partners not
         already listed, grouped into today / yesterday / last week / older,
         each with presence and the time or date of the last DM.
         The submenu is only rebuilt when its content actually changed --
@@ -275,14 +289,22 @@ class TrayController:
                 entry = self._contact_entry(contact, now, day_in_header=True)
                 buckets[recency_bucket(contact.last_message_ts, now)].append(entry)
             rendered += [(RECENCY_HEADER_KEYS[bucket], entries) for bucket, entries in buckets.items() if entries]
-        if rendered == self._contacts_rendered:
+        if self._search_window is not None and book is not None:
+            # Same 60 s timer and events keep presence and dates current
+            # in the open search window.
+            self._search_window.set_book(book, self._settings.favorite_user_ids)
+        visible = book is not None
+        if (visible, rendered) == self._contacts_rendered:
             return
-        self._contacts_rendered = rendered
+        self._contacts_rendered = (visible, rendered)
         for child in self._contacts_menu.get_children():
             self._contacts_menu.remove(child)
-        for index, (header, entries) in enumerate(rendered):
-            if index:
-                self._contacts_menu.append(Gtk.SeparatorMenuItem())
+        # DBusMenu cannot host a text entry, so the search opens a window.
+        search_item = Gtk.MenuItem(label=tr("tray.contacts_search"))
+        search_item.connect("activate", lambda *_: _defer(self.open_contact_search))
+        self._contacts_menu.append(search_item)
+        for header, entries in rendered:
+            self._contacts_menu.append(Gtk.SeparatorMenuItem())
             header_item = Gtk.MenuItem(label=tr(header))
             header_item.set_sensitive(False)
             self._contacts_menu.append(header_item)
@@ -291,11 +313,11 @@ class TrayController:
                 item.connect("activate", lambda _item, u=user_id, n=full_name: _defer(self._open_contact, u, n))
                 self._contacts_menu.append(item)
         self._contacts_menu.show_all()
-        self._contacts_item.set_visible(bool(rendered))
+        self._contacts_item.set_visible(visible)
 
     @staticmethod
     def _contact_entry(contact: Contact, now: float, day_in_header: bool = False) -> tuple[int, str, str]:
-        label = f"{PRESENCE_MARKS.get(contact.status, PRESENCE_MARKS['offline'])}  {contact.full_name}"
+        label = f"{contact.presence_mark}  {contact.full_name}"
         when = format_last_message(contact.last_message_ts, now, day_in_header)
         return contact.user_id, contact.full_name, f"{label}  ·  {when}" if when else label
 
