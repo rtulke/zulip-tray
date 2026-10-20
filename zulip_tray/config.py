@@ -20,6 +20,10 @@ USER_SETTINGS_PATH = Path.home() / ".config" / "zulip-tray" / "settings.json"
 # presence_enabled=false (others see you as offline). Zulip has no "busy".
 STATUS_OPTIONS = ("auto", "online", "away", "invisible")
 
+# Light/dark choice for the tray's own windows and for the Zulip web chat:
+# "system" follows GNOME's style switch.
+COLOR_SCHEMES = ("system", "light", "dark")
+
 DEFAULT_SETTINGS = {
     "notifications": {
         "blink_enabled": True,
@@ -46,6 +50,9 @@ DEFAULT_SETTINGS = {
     },
     "browser": {
         "app_mode_enabled": False,
+    },
+    "appearance": {
+        "window_color_scheme": "system",
     },
     "contacts": {
         # Zulip user ids pinned at the top of the tray's contacts menu.
@@ -248,6 +255,20 @@ class UserSettings:
     @app_mode_enabled.setter
     def app_mode_enabled(self, value: bool) -> None:
         self._data["browser"]["app_mode_enabled"] = value
+
+    # --- appearance ------------------------------------------------------------
+
+    @property
+    def window_color_scheme(self) -> str:
+        """Light/dark for the tray's own windows (settings, login, search);
+        one of COLOR_SCHEMES. The web chat's colours are a Zulip account
+        setting instead (zulip_api.set_color_scheme)."""
+        value = self._data["appearance"].get("window_color_scheme")
+        return value if value in COLOR_SCHEMES else "system"
+
+    @window_color_scheme.setter
+    def window_color_scheme(self, value: str) -> None:
+        self._data["appearance"]["window_color_scheme"] = value if value in COLOR_SCHEMES else "system"
 
     # --- contacts --------------------------------------------------------------
 

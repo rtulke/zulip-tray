@@ -27,6 +27,10 @@ EVENT_TYPES = [
 # Initial state only: recent_private_conversations has no events of its
 # own, the client keeps it current from message events (contacts.py).
 FETCH_EVENT_TYPES = [*EVENT_TYPES, "recent_private_conversations"]
+# Zulip's user setting color_scheme, part of user_settings (present in the
+# register response, confirmed live on Zulip 12.3).
+COLOR_SCHEME_IDS = {"system": 1, "dark": 2, "light": 3}
+COLOR_SCHEME_NAMES = {value: name for name, value in COLOR_SCHEME_IDS.items()}
 CLIENT_CAPABILITIES = {
     # desktop_notifications on a subscription may then be null, meaning
     # "use the account-wide default" -- see notifications.py.
@@ -218,6 +222,12 @@ class ZulipApi:
         """PATCH /settings presence_enabled -- false is Zulip's "invisible
         mode" (everyone else sees you as offline)."""
         self._request("PATCH", "settings", data={"presence_enabled": "true" if enabled else "false"})
+
+    def set_color_scheme(self, scheme: str) -> None:
+        """PATCH /settings color_scheme -- the web client's own theme
+        setting (Personal settings > Preferences), so it applies to every
+        browser this account uses, not only the one the tray opens."""
+        self._request("PATCH", "settings", data={"color_scheme": COLOR_SCHEME_IDS[scheme]})
 
     def set_status_text(self, text: str) -> None:
         """POST /users/me/status. Zulip caps status_text at 60 characters;

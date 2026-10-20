@@ -53,7 +53,7 @@ class ZulipTrayApplication(Gtk.Application):
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
-        self._color_scheme_settings = appearance.follow_system_color_scheme()
+        self.color_scheme = appearance.ColorScheme(self.settings.window_color_scheme)
         for name, handler in (
             ("restart", self._handle_restart_action),
             ("quit", lambda *_: self.quit_app()),
@@ -229,6 +229,8 @@ class ZulipTrayApplication(Gtk.Application):
             self.settings, self.admin_config.server_url, self.admin_config.verify_ssl, autostart.is_enabled(),
             self.settings.email, self.notifier.play_test_sound, self.update_server, self.reenter_login,
             autostart.set_enabled, users=self.tray.contacts.users() if self.tray.contacts else None,
+            current_chat_color_scheme=self._chat_color_scheme(),
+            on_set_chat_color_scheme=self._set_chat_color_scheme,
         )
 
         def on_response(_dialog, response_id: int) -> None:
@@ -237,10 +239,34 @@ class ZulipTrayApplication(Gtk.Application):
                 self.idle_watcher.set_enabled(self.settings.idle_detection_enabled)
                 self.presence.apply()
                 self.tray.refresh_contacts()
+                self.color_scheme.set_mode(self.settings.window_color_scheme)
             dialog.destroy()
 
         dialog.connect("response", on_response)
         dialog.present()
+
+    def _chat_color_scheme(self) -> str | None:
+        """The web chat's colours (Zulip account setting color_scheme) as
+        one of config.COLOR_SCHEMES; None while not connected."""
+        state = self.worker.state
+        if state is None:
+            return None
+        return zulip_api.COLOR_SCHEME_NAMES.get(state.user_settings.get("color_scheme"), "system")
+
+    def _set_chat_color_scheme(self, scheme: str) -> None:
+        api = self.worker.api
+        if api is None:
+            return
+
+        def push() -> None:
+            try:
+                api.set_color_scheme(scheme)
+            except zulip_api.ApiError as exc:
+                logger.warning("Farbschema des Chats konnte nicht gesetzt werden: %s", exc)
+
+        # The server answers with a user_settings event, which updates
+        # the worker's copy of color_scheme.
+        spawn(push, name="chat-color-scheme")
 
     def update_server(self, server_url: str, verify_ssl: bool) -> None:
         if server_url == self.admin_config.server_url and verify_ssl == self.admin_config.verify_ssl:

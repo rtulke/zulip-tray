@@ -8,6 +8,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk  # noqa: E402
 
 from . import sounds
+from .config import COLOR_SCHEMES
 from .i18n import tr
 
 ROW_MARGIN = 10
@@ -69,13 +70,16 @@ class SettingsDialog(Gtk.Dialog):
         self, settings, current_server_url: str, current_verify_ssl: bool, current_autostart_enabled: bool,
         current_email: str, on_test_sound: Callable[[], None], on_update_server: Callable[[str, bool], None],
         on_reset_login: Callable[[], None], on_set_autostart: Callable[[bool], None],
-        users: list[tuple[int, str]] | None = None, parent=None,
+        users: list[tuple[int, str]] | None = None, current_chat_color_scheme: str | None = None,
+        on_set_chat_color_scheme: Callable[[str], None] | None = None, parent=None,
     ):
         super().__init__(title=tr("settings.title"), transient_for=parent, modal=False)
         self._settings = settings
         self._on_test_sound = on_test_sound
         self._on_update_server = on_update_server
         self._on_set_autostart = on_set_autostart
+        self._on_set_chat_color_scheme = on_set_chat_color_scheme
+        self._initial_chat_color_scheme = current_chat_color_scheme
         self.set_default_size(720, 440)
         self.set_icon_name("zulip-tray")
 
@@ -168,6 +172,21 @@ class SettingsDialog(Gtk.Dialog):
             _row(duration_label, idle_box, expand_last=True),
         ])
 
+        # --- colours -----------------------------------------------------------------------
+        # The chat's colours are the Zulip account's own theme setting, so
+        # they can only be read and changed while connected.
+        self._window_colors_combo = self._color_combo(settings.window_color_scheme)
+        self._chat_colors_combo = self._color_combo(current_chat_color_scheme or "system")
+        self._chat_colors_combo.set_sensitive(current_chat_color_scheme is not None)
+        chat_hint = _label(tr("settings.chat_colors_hint" if current_chat_color_scheme is not None
+                              else "settings.chat_colors_unavailable"))
+        chat_hint.get_style_context().add_class("dim-label")
+        colors_card = _boxed_list([
+            _row(_label(tr("settings.window_colors")), self._window_colors_combo),
+            _row(_label(tr("settings.chat_colors")), self._chat_colors_combo),
+            _row(chat_hint),
+        ])
+
         # --- favorites --------------------------------------------------------------------
         # users is None while not connected: without the realm's user list
         # there are no names to show, and the stored favorites stay as they are.
@@ -182,6 +201,7 @@ class SettingsDialog(Gtk.Dialog):
             ("notifications", tr("settings.section_notifications"),
              _page(tr("settings.section_notifications"), notifications_card)),
             ("presence", tr("settings.section_presence"), _page(tr("settings.section_presence"), presence_card)),
+            ("colors", tr("settings.section_colors"), _page(tr("settings.section_colors"), colors_card)),
             ("favorites", tr("settings.section_favorites"),
              _page(tr("settings.section_favorites"), favorites_card)),
         ]:
@@ -200,6 +220,15 @@ class SettingsDialog(Gtk.Dialog):
         self.set_default_response(Gtk.ResponseType.OK)
         self.connect("response", self._handle_response)
         content.show_all()
+
+    @staticmethod
+    def _color_combo(current: str) -> Gtk.ComboBoxText:
+        combo = Gtk.ComboBoxText()
+        for scheme in COLOR_SCHEMES:
+            combo.append(scheme, tr(f"settings.color_{scheme}"))
+        if not combo.set_active_id(current):
+            combo.set_active(0)
+        return combo
 
     def _build_favorites_card(self, users: list[tuple[int, str]] | None, favorites: set[int]) -> Gtk.Frame:
         if users is None:
@@ -253,6 +282,11 @@ class SettingsDialog(Gtk.Dialog):
         settings.idle_threshold_minutes = int(self._idle_scale.get_value()) * 5
         settings.sound_choice = self._sound_combo.get_active_id() or settings.sound_choice
         settings.sound_volume = self._volume_scale.get_value() / 100
+        settings.window_color_scheme = self._window_colors_combo.get_active_id() or "system"
+        chat_scheme = self._chat_colors_combo.get_active_id()
+        if (self._chat_colors_combo.get_sensitive() and chat_scheme != self._initial_chat_color_scheme
+                and self._on_set_chat_color_scheme is not None):
+            self._on_set_chat_color_scheme(chat_scheme)
         if self._favorite_checks:
             settings.favorite_user_ids = [uid for uid, check in self._favorite_checks.items() if check.get_active()]
         settings.save()
