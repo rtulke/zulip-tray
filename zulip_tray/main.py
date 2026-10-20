@@ -55,7 +55,6 @@ class ZulipTrayApplication(Gtk.Application):
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
-        self.color_scheme = appearance.ColorScheme(self.settings.window_color_scheme)
         for name, handler in (
             ("restart", self._handle_restart_action),
             ("quit", lambda *_: self.quit_app()),
@@ -96,6 +95,9 @@ class ZulipTrayApplication(Gtk.Application):
 
     def _bootstrap(self) -> None:
         self.settings = UserSettings.load()
+        # Before any window exists, so even the config-error dialog below
+        # already has the chosen colours.
+        self.color_scheme = appearance.ColorScheme(self.settings.window_color_scheme)
         try:
             self.admin_config = effective_admin_config(self.settings)
         except ConfigError as exc:
