@@ -1,6 +1,6 @@
 from zulip_tray.notifications import (
     TOPIC_FOLLOWED, TOPIC_MUTED, TOPIC_UNMUTED, clean_content, conversation_for, dm_fragment,
-    encode_hash_component, evaluate_message, stream_fragment, topic_policies_from,
+    encode_hash_component, evaluate_message, offers_reply, stream_fragment, topic_policies_from,
 )
 
 OWN = 7
@@ -135,3 +135,9 @@ def test_conversation_carries_reply_target():
     assert group.recipient_ids == (5, 9)
     channel = conversation_for(stream_msg(topic="Lunch Plans"), OWN)
     assert (channel.stream_id, channel.topic, channel.recipient_ids) == (3, "Lunch Plans", ())
+
+
+def test_reply_button_for_dms_always_for_channels_on_request():
+    assert offers_reply(conversation_for(dm(), OWN), False)
+    assert not offers_reply(conversation_for(stream_msg(), OWN), False)
+    assert offers_reply(conversation_for(stream_msg(), OWN), True)

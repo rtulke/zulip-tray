@@ -31,6 +31,10 @@ DEFAULT_SETTINGS = {
         "sound_volume": 0.7,
         "sound_choice": DEFAULT_SOUND_CHOICE,
         "tooltip_enabled": True,
+        # The notification's Reply button for channel messages too, not
+        # only direct messages. Off by default: the answer window shows one
+        # message without its thread, and a channel reply is public.
+        "reply_in_channels": False,
     },
     "presence": {
         "forced_status": "auto",
@@ -175,6 +179,14 @@ class UserSettings:
     @tooltip_enabled.setter
     def tooltip_enabled(self, value: bool) -> None:
         self._data["notifications"]["tooltip_enabled"] = value
+
+    @property
+    def reply_in_channels(self) -> bool:
+        return bool(self._data["notifications"]["reply_in_channels"])
+
+    @reply_in_channels.setter
+    def reply_in_channels(self, value: bool) -> None:
+        self._data["notifications"]["reply_in_channels"] = bool(value)
 
     # --- presence --------------------------------------------------------------
 

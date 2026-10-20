@@ -102,6 +102,12 @@ def conversation_for(message: dict, own_user_id: int) -> Conversation:
     )
 
 
+def offers_reply(conversation: Conversation, reply_in_channels: bool) -> bool:
+    """Whether a notification gets the Reply button: always for direct
+    messages, for channel topics only when enabled in the settings."""
+    return conversation.is_dm or reply_in_channels
+
+
 def topic_key(stream_id: int | None, topic: str) -> tuple[int | None, str]:
     """Zulip treats topic names case-insensitively, and so do the
     user_topic lookups."""
