@@ -12,7 +12,7 @@ from gi.repository import Gio, GLib, Gtk  # noqa: E402
 
 import urllib3  # noqa: E402
 
-from . import auth, autostart, keyring, zulip_api  # noqa: E402
+from . import appearance, auth, autostart, keyring, zulip_api  # noqa: E402
 from .about_dialog import show_about  # noqa: E402
 from .config import ConfigError, UserSettings, effective_admin_config  # noqa: E402
 from .deeplink import RoomOpener, open_url_default  # noqa: E402
@@ -53,6 +53,7 @@ class ZulipTrayApplication(Gtk.Application):
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
+        self._color_scheme_settings = appearance.follow_system_color_scheme()
         for name, handler in (
             ("restart", self._handle_restart_action),
             ("quit", lambda *_: self.quit_app()),
