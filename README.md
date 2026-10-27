@@ -14,6 +14,29 @@ A small GNOME system-tray client for [Zulip](https://zulip.com/): your own prese
 
 Built with GTK 3 via PyGObject on top of distro packages only, so the `.deb` is a few hundred kilobytes and one package serves every supported release.
 
+## Screenshots
+
+Made-up people and server, real windows.
+
+<p align="center"><img src="docs/screenshots/tray-icons.png" alt="Tray icon states: online, away, invisible, offline, unread messages" width="560"></p>
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/tray-menu.png" alt="Tray menu" width="380"><br>Tray menu</td>
+    <td align="center"><img src="docs/screenshots/tray-direct-messages.png" alt="Direct messages submenu" width="260"><br>Direct messages: favorites and recent people</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/search.png" alt="Person search window" width="380"><br>Person search (<code>zulip-tray --search</code>, e.g. on Super+Z)</td>
+    <td align="center"><img src="docs/screenshots/reply.png" alt="Reply window" width="380"><br>Replying from a notification</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/settings-notifications.png" alt="Notification settings" width="380"><br>Settings: notifications</td>
+    <td align="center"><img src="docs/screenshots/settings-defaults.png" alt="General settings with language choice" width="380"><br>Settings: language, autostart, server</td>
+  </tr>
+</table>
+
+More in [`docs/screenshots`](docs/screenshots).
+
 ## Supported systems
 
 | Distribution | Version |
