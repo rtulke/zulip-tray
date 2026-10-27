@@ -1,5 +1,7 @@
 # Zulip Tray
 
+<p align="center"><img src="docs/screenshots/hero.png" alt="Zulip Tray in the GNOME top bar with its menu and the direct messages submenu open"></p>
+
 A small GNOME system-tray client for [Zulip](https://zulip.com/): your own presence as a colour-coded tray icon, desktop notifications for new messages, and your status right in the tray menu — without running the Electron desktop app. The chat itself opens in the web client.
 
 - Tray icon mirrors your presence as the server sees it across all your clients: green (active), orange (idle), grey (offline or invisible). Changes made in the web or mobile client show up here too.
