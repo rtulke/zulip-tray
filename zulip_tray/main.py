@@ -12,7 +12,7 @@ from gi.repository import Gio, GLib, Gtk  # noqa: E402
 
 import urllib3  # noqa: E402
 
-from . import appearance, auth, autostart, keyring, zulip_api  # noqa: E402
+from . import appearance, auth, autostart, i18n, keyring, zulip_api  # noqa: E402
 from .about_dialog import show_about  # noqa: E402
 from .config import ConfigError, UserSettings, effective_admin_config  # noqa: E402
 from .deeplink import RoomOpener, open_url_default  # noqa: E402
@@ -95,6 +95,8 @@ class ZulipTrayApplication(Gtk.Application):
 
     def _bootstrap(self) -> None:
         self.settings = UserSettings.load()
+        # Before the first tr(): every label is built in this language.
+        i18n.set_language(self.settings.language)
         # Before any window exists, so even the config-error dialog below
         # already has the chosen colours.
         self.color_scheme = appearance.ColorScheme(self.settings.window_color_scheme)
@@ -238,6 +240,7 @@ class ZulipTrayApplication(Gtk.Application):
             autostart.set_enabled, users=self.tray.contacts.users() if self.tray.contacts else None,
             current_chat_color_scheme=self._chat_color_scheme(),
             on_set_chat_color_scheme=self._set_chat_color_scheme,
+            on_set_language=self._set_language,
         )
 
         def on_response(_dialog, response_id: int) -> None:
@@ -375,13 +378,23 @@ class ZulipTrayApplication(Gtk.Application):
             self.search_pending = False
             self.tray.open_contact_search()
 
+    def _set_language(self, choice: str) -> None:
+        if choice == self.settings.language:
+            return
+        self.settings.language = choice
+        self.settings.save()
+        # Menus, dialogs and notifications all hold texts built at startup;
+        # relaunching is simpler and safer than rebuilding each of them.
+        logger.info("Sprache auf %s geaendert, starte neu...", choice)
+        GLib.idle_add(lambda: (self._handle_restart_action(), False)[1])
+
     def _handle_restart_action(self, *_args) -> None:
         # packaging/postinstall.sh triggers this after a .deb upgrade so
         # the running (now outdated) instance relaunches itself. The actual
         # exec happens in main() after the main loop has ended and this
         # process's D-Bus name is gone -- a child spawned *now* would still
         # find us registered, defer to us as the primary instance, and exit.
-        logger.info("Neustart angefordert (Paket-Upgrade), starte neu...")
+        logger.info("Neustart angefordert, starte neu...")
         self.restart_requested = True
         self.quit_app()
 

@@ -19,6 +19,8 @@ for name, version in (("Gtk", "3.0"), ("AyatanaAppIndicator3", "0.1"), ("Notify"
 from gi.repository import Gio, GLib, Notify, Secret  # noqa: F401 -- display-free ones
 import zulip_tray
 from zulip_tray import config, i18n, keyring, notifications, zulip_api  # noqa: F401
-print("version:", zulip_tray.__version__, "| language catalogs:", len(i18n._CATALOGS))
+languages = i18n.available_languages()
+assert {"de", "en", "es", "fr", "gsw", "gsw_u_sd_chbe", "it"} <= set(languages), sorted(languages)
+print("version:", zulip_tray.__version__, "| languages:", ", ".join(sorted(languages)))
 PYEOF
 echo "verify-installed: OK"

@@ -5,7 +5,7 @@ import sys
 
 import urllib3
 
-from . import keyring, zulip_api
+from . import i18n, keyring, zulip_api
 from .config import ConfigError, UserSettings, effective_admin_config
 from .i18n import tr
 
@@ -40,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     settings = UserSettings.load()
+    i18n.set_language(settings.language)
     try:
         admin_config = effective_admin_config(settings)
     except ConfigError as exc:

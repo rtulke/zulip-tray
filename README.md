@@ -46,7 +46,13 @@ Then start Zulip Tray from the application menu or run `zulip-tray`; autostart o
 
 `email_domain` in the same file prefills the sign-in dialog with `<os-user>@<domain>`; Zulip identifies accounts by e-mail address.
 
-**Everything else** (notifications, sound, idle behaviour, autostart, dedicated browser window) lives in the Settings dialog in the tray menu.
+**Everything else** (language, notifications, sound, idle behaviour, autostart, dedicated browser window) lives in the Settings dialog in the tray menu.
+
+## Languages
+
+English, German, Swiss German (Schwiizerdütsch), Bernese German (Bärndütsch), French, Italian and Spanish. By default the app follows the desktop's language (`LANGUAGE`, then `LC_ALL`/`LC_MESSAGES`/`LANG`); Settings › Language picks one explicitly. The Swiss German dialects are chosen in the settings (or with a `gsw` locale): a `de_CH` system gets Standard German.
+
+Every language is one JSON file in [`zulip_tray/locales`](zulip_tray/locales). New languages and corrections are welcome as pull requests; see [TRANSLATING.md](TRANSLATING.md).
 
 ## Development
 

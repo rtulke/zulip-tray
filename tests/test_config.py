@@ -44,6 +44,11 @@ def test_user_settings_roundtrip_and_validation(tmp_path):
     s.click_action = "bogus"
     assert s.click_action == "open"
     assert s.blink_stop_minutes == 0
+    assert s.language == "system"
+    s.language = "gsw"
+    assert s.language == "gsw"
+    s.language = ""
+    assert s.language == "system"
     s.blink_stop_minutes = 5
     assert s.blink_stop_minutes == 5
     s.blink_stop_minutes = 7

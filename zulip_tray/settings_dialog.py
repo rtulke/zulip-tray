@@ -10,6 +10,7 @@ from gi.repository import Gtk  # noqa: E402
 from . import sounds
 from .dialog_layout import pad_button_row
 from .config import BLINK_STOP_MINUTES, CLICK_ACTIONS, COLOR_SCHEMES, RECENT_RANGES, REPLY_BUTTON_OPTIONS
+from . import i18n
 from .i18n import tr
 
 ROW_MARGIN = 10
@@ -76,7 +77,8 @@ class SettingsDialog(Gtk.Dialog):
         current_email: str, on_test_sound: Callable[[], None], on_update_server: Callable[[str, bool], None],
         on_reset_login: Callable[[], None], on_set_autostart: Callable[[bool], None],
         users: list[tuple[int, str]] | None = None, current_chat_color_scheme: str | None = None,
-        on_set_chat_color_scheme: Callable[[str], None] | None = None, parent=None,
+        on_set_chat_color_scheme: Callable[[str], None] | None = None,
+        on_set_language: Callable[[str], None] | None = None, parent=None,
     ):
         super().__init__(title=tr("settings.title"), transient_for=parent, modal=False)
         self._settings = settings
@@ -84,12 +86,22 @@ class SettingsDialog(Gtk.Dialog):
         self._on_update_server = on_update_server
         self._on_set_autostart = on_set_autostart
         self._on_set_chat_color_scheme = on_set_chat_color_scheme
+        self._on_set_language = on_set_language
         self._initial_chat_color_scheme = current_chat_color_scheme
         self.set_default_size(720, 440)
         self.set_icon_name("zulip-tray")
 
         # --- Zulip defaults ------------------------------------------------------
         self._autostart_switch = Gtk.Switch(active=current_autostart_enabled)
+        self._language_combo = Gtk.ComboBoxText()
+        self._language_combo.append(i18n.SYSTEM, tr("settings.language_system"))
+        for language in sorted(i18n.available_languages().values(), key=lambda lang: lang.name.casefold()):
+            self._language_combo.append(language.code, language.name)
+        if not self._language_combo.set_active_id(settings.language):
+            self._language_combo.set_active(0)
+        self._initial_language = self._language_combo.get_active_id()
+        language_hint = _label(tr("settings.language_hint"))
+        language_hint.get_style_context().add_class("dim-label")
         email_label = Gtk.Label(label=current_email or "—", xalign=1)
         email_label.set_selectable(True)
         email_label.get_style_context().add_class("dim-label")
@@ -98,6 +110,8 @@ class SettingsDialog(Gtk.Dialog):
         reset_login_button = Gtk.Button(label=tr("settings.reset_login"))
         reset_login_button.connect("clicked", lambda *_: on_reset_login())
         defaults_card = _boxed_list([
+            _row(_label(tr("settings.language")), self._language_combo),
+            _row(language_hint, expand_last=True),
             _row(_label(tr("settings.autostart")), self._autostart_switch),
             _row(_label(tr("settings.email")), email_label),
             _row(_label(tr("settings.server_url")), self._server_url_entry, expand_last=True),
@@ -343,3 +357,7 @@ class SettingsDialog(Gtk.Dialog):
         if self._favorite_checks:
             settings.favorite_user_ids = [uid for uid, check in self._favorite_checks.items() if check.get_active()]
         settings.save()
+        # Last: a new language relaunches the app (see main._set_language).
+        language = self._language_combo.get_active_id() or i18n.SYSTEM
+        if language != self._initial_language and self._on_set_language is not None:
+            self._on_set_language(language)

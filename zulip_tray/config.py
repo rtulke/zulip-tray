@@ -75,6 +75,8 @@ DEFAULT_SETTINGS = {
     },
     "appearance": {
         "window_color_scheme": "system",
+        # "system" (the session's locale) or a code from zulip_tray/locales.
+        "language": "system",
     },
     "contacts": {
         # Zulip user ids pinned at the top of the tray's contacts menu.
@@ -325,6 +327,17 @@ class UserSettings:
     @window_color_scheme.setter
     def window_color_scheme(self, value: str) -> None:
         self._data["appearance"]["window_color_scheme"] = value if value in COLOR_SCHEMES else "system"
+
+    @property
+    def language(self) -> str:
+        """Kept as written; i18n.set_language falls back to the system
+        language for a code whose file is gone."""
+        value = self._data["appearance"].get("language")
+        return value if isinstance(value, str) and value else "system"
+
+    @language.setter
+    def language(self, value: str) -> None:
+        self._data["appearance"]["language"] = value or "system"
 
     # --- contacts --------------------------------------------------------------
 
