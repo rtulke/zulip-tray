@@ -141,3 +141,24 @@ def test_reply_button_per_setting():
     direct, channel = conversation_for(dm(), OWN), conversation_for(stream_msg(), OWN)
     assert [offers_reply(direct, o) for o in ("off", "direct", "all")] == [False, True, True]
     assert [offers_reply(channel, o) for o in ("off", "direct", "all")] == [False, False, True]
+
+
+def test_unread_snapshot_collects_every_kind():
+    from zulip_tray.notifications import unread_snapshot_from
+    snapshot = unread_snapshot_from({
+        "pms": [{"other_user_id": 7, "unread_message_ids": [10, 11]}],
+        "streams": [{"stream_id": 3, "topic": "t", "unread_message_ids": [20]}],
+        "huddles": [{"user_ids_string": "1,2,7", "unread_message_ids": [30]}],
+        "mentions": [40],
+        "old_unreads_missing": False,
+    })
+    assert all(snapshot.is_unread(mid) for mid in (10, 11, 20, 30, 40))
+    assert not snapshot.is_unread(12)  # read while the tray was disconnected
+    assert not unread_snapshot_from(None).is_unread(1)
+
+
+def test_unread_snapshot_keeps_ids_older_than_a_capped_list():
+    from zulip_tray.notifications import unread_snapshot_from
+    snapshot = unread_snapshot_from({"pms": [{"unread_message_ids": [100, 200]}], "old_unreads_missing": True})
+    assert snapshot.is_unread(50)  # older than the cap: unknown, so kept
+    assert not snapshot.is_unread(150)  # inside the listed range and absent: read

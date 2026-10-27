@@ -32,6 +32,10 @@ REPLY_BUTTON_OPTIONS = ("off", "direct", "all")
 # buttons only once a notification is expanded, the click works always.
 CLICK_ACTIONS = ("open", "reply")
 
+# Minutes after the newest unread notification until the icon stops
+# blinking and keeps the unread badge steady; 0 = blink until read.
+BLINK_STOP_MINUTES = (0, 1, 5, 15, 60)
+
 # Light/dark choice for the tray's own windows and for the Zulip web chat:
 # "system" follows GNOME's style switch.
 COLOR_SCHEMES = ("system", "light", "dark")
@@ -39,6 +43,7 @@ COLOR_SCHEMES = ("system", "light", "dark")
 DEFAULT_SETTINGS = {
     "notifications": {
         "blink_enabled": True,
+        "blink_stop_minutes": 0,  # BLINK_STOP_MINUTES
         "sound_enabled": False,
         "sound_volume": 0.7,
         "sound_choice": DEFAULT_SOUND_CHOICE,
@@ -163,6 +168,15 @@ class UserSettings:
     @blink_enabled.setter
     def blink_enabled(self, value: bool) -> None:
         self._data["notifications"]["blink_enabled"] = value
+
+    @property
+    def blink_stop_minutes(self) -> int:
+        value = self._data["notifications"].get("blink_stop_minutes")
+        return value if value in BLINK_STOP_MINUTES else 0
+
+    @blink_stop_minutes.setter
+    def blink_stop_minutes(self, value: int) -> None:
+        self._data["notifications"]["blink_stop_minutes"] = value if value in BLINK_STOP_MINUTES else 0
 
     @property
     def sound_enabled(self) -> bool:

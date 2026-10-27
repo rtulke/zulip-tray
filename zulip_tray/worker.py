@@ -79,6 +79,9 @@ class ZulipWorker(threading.Thread):
         self.own_presence = Signal("own_presence")  # (status: "active"|"idle"|"offline")
         self.user_setting_changed = Signal("user_setting_changed")  # (property: str, value)
         self.messages_read = Signal("messages_read")  # (message_ids: list[int])
+        # (notifications.UnreadSnapshot) after every register, so read
+        # events missed while disconnected still clear the tray.
+        self.unread_synced = Signal("unread_synced")
         self.contacts_loaded = Signal("contacts_loaded")  # (ContactBook), owned by the main thread from then on
         self.contact_event = Signal("contact_event")  # (event: dict), for ContactBook.apply_event
 
@@ -191,6 +194,7 @@ class ZulipWorker(threading.Thread):
         self.state = state
         self.api = api
         self.connected.emit_from_thread(state)
+        self.unread_synced.emit_from_thread(notifications.unread_snapshot_from(registration.get("unread_msgs")))
         self.contacts_loaded.emit_from_thread(contacts)
         own_status = zulip_api.own_presence_from_response(registration, state.user_id, state.offline_threshold)
         if own_status:

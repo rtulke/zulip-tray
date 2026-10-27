@@ -208,3 +208,31 @@ def evaluate_message(
         stream=message.get("display_recipient", ""), topic=message.get("subject", ""),
     )
     return Notification(conversation=conversation, title=title, body=content, message_id=message["id"])
+
+
+@dataclass(frozen=True)
+class UnreadSnapshot:
+    """The server's unread messages as of a register: what lets the tray
+    drop missed-list entries that were read while it had no event queue
+    (suspend, network loss) and so never saw the read events."""
+
+    message_ids: frozenset[int]
+    # The server caps unread_msgs (newest first); with old_unreads_missing
+    # set, ids older than the oldest one listed are unknown, not read.
+    complete: bool = True
+
+    def is_unread(self, message_id: int) -> bool:
+        if message_id in self.message_ids:
+            return True
+        if self.complete:
+            return False
+        return not self.message_ids or message_id < min(self.message_ids)
+
+
+def unread_snapshot_from(unread_msgs: dict | None) -> UnreadSnapshot:
+    unread_msgs = unread_msgs or {}
+    ids: set[int] = set(unread_msgs.get("mentions") or [])
+    for kind in ("pms", "streams", "huddles"):
+        for entry in unread_msgs.get(kind) or []:
+            ids.update(entry.get("unread_message_ids") or [])
+    return UnreadSnapshot(frozenset(ids), complete=not unread_msgs.get("old_unreads_missing"))

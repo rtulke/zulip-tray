@@ -17,7 +17,7 @@ from .contacts import (
     RECENCY_BUCKETS, RECENT_LIMIT, Contact, ContactBook, bucket_in_range, format_last_message, recency_bucket,
 )
 from .i18n import tr
-from .notifications import Notification, dm_fragment
+from .notifications import Notification, UnreadSnapshot, dm_fragment
 from .resources import ICON_DIR, icon_name
 
 logger = logging.getLogger(__name__)
@@ -75,9 +75,10 @@ class TrayController:
 
     def __init__(
         self, settings, on_open_chat, on_open_conversation, on_open_settings, on_reenter_login,
-        on_set_status, on_set_status_message, on_show_about, on_quit,
+        on_set_status, on_set_status_message, on_show_about, on_quit, on_mark_read,
     ):
         self._settings = settings
+        self._on_mark_read = on_mark_read  # (message_ids) -> marks them read on the server
         self._on_open_chat = on_open_chat
         self._on_open_conversation = on_open_conversation  # (fragment)
         self._on_set_status = on_set_status
@@ -88,6 +89,10 @@ class TrayController:
         self._unread: dict[str, _Unread] = {}  # conversation key -> entry, insertion-ordered
         self._blink_visible = False
         self._blink_timer: int | None = None
+        # After settings.blink_stop_minutes without a new notification the
+        # blinking settles into a steady unread badge.
+        self._blink_settled = False
+        self._settle_timer: int | None = None
         self._email = ""
         self._updating_menu = False
         self._contacts: ContactBook | None = None
@@ -110,6 +115,8 @@ class TrayController:
         self._missed_item = Gtk.MenuItem(label=tr("tray.missed_messages_submenu"))
         self._missed_menu = Gtk.Menu()
         self._missed_item.set_submenu(self._missed_menu)
+        self._mark_all_read_item = Gtk.MenuItem(label=tr("tray.mark_all_read"))
+        self._mark_all_read_item.connect("activate", lambda *_: _defer(self.mark_all_read))
         menu.append(self._missed_item)
 
         open_chat_item = Gtk.MenuItem(label=tr("tray.open_chat"))
@@ -353,6 +360,7 @@ class TrayController:
         entry = self._unread.setdefault(conversation.key, _Unread(conversation.label, conversation.fragment))
         entry.label = conversation.label
         entry.message_ids.add(notification.message_id)
+        self._restart_settle_timer()
         self._refresh_unread_display()
         self._refresh_missed_menu()
 
@@ -370,6 +378,26 @@ class TrayController:
                     del self._unread[key]
         self._refresh_unread_display()
         self._refresh_missed_menu()
+
+    def resync_unread(self, snapshot: UnreadSnapshot) -> None:
+        """Drops what the server no longer counts as unread: read events
+        sent while the tray had no event queue (suspend, network loss) are
+        lost, and without this the icon would blink for messages read
+        long ago until each one was clicked."""
+        for key, entry in list(self._unread.items()):
+            entry.message_ids = {mid for mid in entry.message_ids if snapshot.is_unread(mid)}
+            if not entry.message_ids:
+                del self._unread[key]
+        self._refresh_unread_display()
+        self._refresh_missed_menu()
+
+    def mark_all_read(self) -> None:
+        """Marks every message in the missed list read on the server too,
+        so the web and mobile clients agree with the tray."""
+        message_ids = set().union(*(entry.message_ids for entry in self._unread.values()))
+        self.clear_all_unread()
+        if message_ids:
+            self._on_mark_read(sorted(message_ids))
 
     def unread_message_ids(self, key: str) -> set[int]:
         entry = self._unread.get(key)
@@ -397,8 +425,14 @@ class TrayController:
     def _refresh_unread_display(self) -> None:
         if self._state != ConnectionState.CONNECTED:
             return
+        if not self._unread:
+            self._cancel_settle_timer()
+            self._blink_settled = False
         if self._unread and self._settings.blink_enabled:
-            self._start_blink()
+            if self._blink_settled:
+                self._show_steady_unread()
+            else:
+                self._start_blink()
         else:
             self._stop_blink()
         if self._unread:
@@ -414,6 +448,9 @@ class TrayController:
             item = Gtk.MenuItem(label=label)
             item.connect("activate", lambda _item, k=key: _defer(self.handle_conversation_click, k))
             self._missed_menu.append(item)
+        if self._unread:
+            self._missed_menu.append(Gtk.SeparatorMenuItem())
+            self._missed_menu.append(self._mark_all_read_item)
         self._missed_menu.show_all()
         self._missed_item.set_visible(bool(self._unread))
 
@@ -427,6 +464,38 @@ class TrayController:
             self._blink_timer = None
         self._blink_visible = False
         self._refresh_icon()
+
+    def blink_settings_changed(self) -> None:
+        """After the settings dialog: a changed time limit counts from now."""
+        if self._unread:
+            self._restart_settle_timer()
+        self._refresh_unread_display()
+
+    def _show_steady_unread(self) -> None:
+        if self._blink_timer is not None:
+            GLib.source_remove(self._blink_timer)
+            self._blink_timer = None
+        self._blink_visible = True
+        self._refresh_icon()
+
+    def _restart_settle_timer(self) -> None:
+        # Every new notification blinks again for the full time.
+        self._cancel_settle_timer()
+        self._blink_settled = False
+        minutes = self._settings.blink_stop_minutes
+        if minutes:
+            self._settle_timer = GLib.timeout_add_seconds(minutes * 60, self._settle_blink)
+
+    def _cancel_settle_timer(self) -> None:
+        if self._settle_timer is not None:
+            GLib.source_remove(self._settle_timer)
+            self._settle_timer = None
+
+    def _settle_blink(self) -> bool:
+        self._settle_timer = None
+        self._blink_settled = True
+        self._refresh_unread_display()
+        return False
 
     def _toggle_blink(self) -> bool:
         self._blink_visible = not self._blink_visible

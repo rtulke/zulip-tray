@@ -130,6 +130,7 @@ class ZulipTrayApplication(Gtk.Application):
             on_set_status_message=self.set_status_message,
             on_show_about=show_about,
             on_quit=self.quit_app,
+            on_mark_read=self.mark_read,
         )
         self.notifier.set_click_handler(self.tray.handle_conversation_click)
         self.notifier.set_reply_handler(self.open_reply)
@@ -150,6 +151,7 @@ class ZulipTrayApplication(Gtk.Application):
         worker.own_presence.connect(self.presence.note_server_presence)
         worker.user_setting_changed.connect(self.presence.note_user_setting)
         worker.messages_read.connect(self.tray.messages_read)
+        worker.unread_synced.connect(self.tray.resync_unread)
         worker.contacts_loaded.connect(self.tray.set_contacts)
         worker.contacts_loaded.connect(self._open_pending_search)
         worker.contact_event.connect(self.tray.apply_contact_event)
@@ -244,6 +246,7 @@ class ZulipTrayApplication(Gtk.Application):
                 self.idle_watcher.set_enabled(self.settings.idle_detection_enabled)
                 self.presence.apply()
                 self.tray.refresh_contacts()
+                self.tray.blink_settings_changed()
                 self.color_scheme.set_mode(self.settings.window_color_scheme)
             dialog.destroy()
 
@@ -292,6 +295,19 @@ class ZulipTrayApplication(Gtk.Application):
             run_on_main(on_done, None)
 
         spawn(push, name="reply")
+
+    def mark_read(self, message_ids: list[int]) -> None:
+        api = self.worker.api
+        if api is None:
+            return
+
+        def push() -> None:
+            try:
+                api.mark_read(message_ids)
+            except zulip_api.ApiError as exc:
+                logger.warning("Nachrichten konnten nicht als gelesen markiert werden: %s", exc)
+
+        spawn(push, name="mark-read")
 
     def _chat_color_scheme(self) -> str | None:
         """The web chat's colours (Zulip account setting color_scheme) as

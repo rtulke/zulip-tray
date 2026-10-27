@@ -43,6 +43,11 @@ def test_user_settings_roundtrip_and_validation(tmp_path):
     assert s.click_action == "reply"
     s.click_action = "bogus"
     assert s.click_action == "open"
+    assert s.blink_stop_minutes == 0
+    s.blink_stop_minutes = 5
+    assert s.blink_stop_minutes == 5
+    s.blink_stop_minutes = 7
+    assert s.blink_stop_minutes == 0
     s.recent_range = "today"
     assert s.recent_range == "today"
     s.recent_range = "bogus"

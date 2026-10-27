@@ -9,7 +9,7 @@ from gi.repository import Gtk  # noqa: E402
 
 from . import sounds
 from .dialog_layout import pad_button_row
-from .config import CLICK_ACTIONS, COLOR_SCHEMES, RECENT_RANGES, REPLY_BUTTON_OPTIONS
+from .config import BLINK_STOP_MINUTES, CLICK_ACTIONS, COLOR_SCHEMES, RECENT_RANGES, REPLY_BUTTON_OPTIONS
 from .i18n import tr
 
 ROW_MARGIN = 10
@@ -111,6 +111,14 @@ class SettingsDialog(Gtk.Dialog):
 
         # --- notifications -------------------------------------------------------------
         self._blink_switch = Gtk.Switch(active=settings.blink_enabled)
+        self._blink_stop_combo = Gtk.ComboBoxText()
+        for minutes in BLINK_STOP_MINUTES:
+            self._blink_stop_combo.append(str(minutes), tr(f"settings.blink_stop_{minutes}"))
+        if not self._blink_stop_combo.set_active_id(str(settings.blink_stop_minutes)):
+            self._blink_stop_combo.set_active(0)
+        self._blink_switch.connect("notify::active", lambda switch, _pspec: self._blink_stop_combo.set_sensitive(
+            switch.get_active()))
+        self._blink_stop_combo.set_sensitive(settings.blink_enabled)
         self._sound_switch = Gtk.Switch(active=settings.sound_enabled)
         self._tooltip_switch = Gtk.Switch(active=settings.tooltip_enabled)
         self._reply_combo = Gtk.ComboBoxText()
@@ -152,6 +160,7 @@ class SettingsDialog(Gtk.Dialog):
         volume_box.pack_start(test_button, False, False, 0)
         notifications_card = _boxed_list([
             _row(_label(tr("settings.blink")), self._blink_switch),
+            _row(_label(tr("settings.blink_stop")), self._blink_stop_combo),
             _row(_label(tr("settings.sound_enabled")), self._sound_switch),
             _row(_label(tr("settings.sound_choice")), self._sound_combo),
             _row(_label(tr("settings.volume")), volume_box, expand_last=True),
@@ -315,6 +324,7 @@ class SettingsDialog(Gtk.Dialog):
             self._on_update_server(url, self._verify_ssl_switch.get_active())
         settings = self._settings
         settings.blink_enabled = self._blink_switch.get_active()
+        settings.blink_stop_minutes = int(self._blink_stop_combo.get_active_id() or 0)
         settings.sound_enabled = self._sound_switch.get_active()
         settings.tooltip_enabled = self._tooltip_switch.get_active()
         settings.reply_button = self._reply_combo.get_active_id() or "direct"
