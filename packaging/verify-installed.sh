@@ -7,7 +7,8 @@ set -euo pipefail
 test -x /usr/bin/zulip-tray
 test -x /usr/bin/zulip-tray-send
 test -f /etc/zulip-tray/config.conf
-test -f /etc/xdg/autostart/zulip-tray.desktop
+# Autostart is opt-in per user (settings switch), never system-wide.
+test ! -e /etc/xdg/autostart/zulip-tray.desktop
 test -f /usr/share/applications/io.github.rtulke.ZulipTray.desktop
 test -f /usr/share/icons/hicolor/scalable/apps/zulip-tray.svg
 test -f /usr/lib/python3/dist-packages/zulip_tray/resources/sounds/notify.wav

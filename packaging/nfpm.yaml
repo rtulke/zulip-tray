@@ -58,9 +58,6 @@ contents:
     file_info:
       mode: 0755
 
-  - src: ./packaging/autostart.desktop
-    dst: /etc/xdg/autostart/zulip-tray.desktop
-
   # Named after the GApplication id so GNOME matches windows and
   # notifications to it; also registers the zulip:// URL scheme handler
   # the OIDC sign-in relies on.

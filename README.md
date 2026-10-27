@@ -35,7 +35,7 @@ sudo apt install ./zulip-tray_<version>_all.deb
 sudo nano /etc/zulip-tray/config.conf     # set url (and email_domain) once for all users
 ```
 
-Then log out/in (autostart) or run `zulip-tray`. The first run opens the sign-in dialog: "Sign in in your browser" sends you to the identity provider; after the login the browser hands the key back to Zulip Tray (via the `zulip://` URL scheme the package registers) and the tray icon turns green.
+Then start Zulip Tray from the application menu or run `zulip-tray`; autostart on login is off until you switch it on in the Settings dialog. The first run opens the sign-in dialog: "Sign in in your browser" sends you to the identity provider; after the login the browser hands the key back to Zulip Tray (via the `zulip://` URL scheme the package registers) and the tray icon turns green.
 
 ## Configuration
 

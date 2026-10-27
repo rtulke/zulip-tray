@@ -2,34 +2,39 @@ from __future__ import annotations
 
 from pathlib import Path
 
-# The package installs a system-wide autostart entry in
-# /etc/xdg/autostart/zulip-tray.desktop, enabled for every user, so an
-# admin doesn't configure each account. A per-user file of the same name
-# under ~/.config/autostart takes priority (standard XDG search order) and
-# with Hidden=true suppresses it without touching /etc -- the same
-# mechanism GNOME's Tweaks/"Startup Applications" use, so both agree.
+# Autostart is opt-in per user: the package ships no system-wide entry, so
+# installing it on every desktop of a fleet does not push a sign-in dialog
+# onto people who never use Zulip. The settings switch writes or removes a
+# standard XDG entry under ~/.config/autostart -- the same file GNOME's
+# Tweaks/"Startup Applications" manage, so both agree.
 _OVERRIDE_PATH = Path.home() / ".config" / "autostart" / "zulip-tray.desktop"
 
-_HIDDEN_ENTRY = """[Desktop Entry]
+_ENTRY = """[Desktop Entry]
 Type=Application
 Name=Zulip Tray
+Comment=Zulip notification tray icon
 Exec=/usr/bin/zulip-tray
-Hidden=true
+Icon=zulip-tray
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
 """
 
 
-def is_enabled() -> bool:
-    if not _OVERRIDE_PATH.exists():
-        return True
+def is_enabled(path: Path | None = None) -> bool:
+    path = path or _OVERRIDE_PATH
     try:
-        return "Hidden=true" not in _OVERRIDE_PATH.read_text()
+        text = path.read_text()
     except OSError:
-        return True
+        return False
+    # Older versions wrote Hidden=true here to suppress the system entry;
+    # GNOME's own switch writes X-GNOME-Autostart-enabled=false.
+    return "Hidden=true" not in text and "X-GNOME-Autostart-enabled=false" not in text
 
 
-def set_enabled(enabled: bool) -> None:
+def set_enabled(enabled: bool, path: Path | None = None) -> None:
+    path = path or _OVERRIDE_PATH
     if enabled:
-        _OVERRIDE_PATH.unlink(missing_ok=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_ENTRY)
     else:
-        _OVERRIDE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _OVERRIDE_PATH.write_text(_HIDDEN_ENTRY)
+        path.unlink(missing_ok=True)

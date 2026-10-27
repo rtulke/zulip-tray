@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Zulip Tray
-Exec=/usr/bin/zulip-tray
-Icon=zulip-tray
-X-GNOME-Autostart-enabled=true
-NoDisplay=true
-Comment=Zulip notification tray icon
-Categories=Network;InstantMessaging;
