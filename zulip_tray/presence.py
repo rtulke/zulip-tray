@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from gi.repository import GLib
 
@@ -46,11 +47,16 @@ class PresenceCoordinator:
         self._presence_enabled: bool | None = None  # server-side user setting; None = unknown
         self.status_applied = Signal("status_applied")  # (icon status: online/away/offline/invisible)
         self.forced_status_changed = Signal("forced_status_changed")  # (forced status) -- server-driven, for the menu
+        self.presences_received = Signal("presences_received")  # (presence event dict), for ContactBook.apply_event
 
     # --- lifecycle (wired to the worker in main.py) --------------------------------------------
 
     def handle_connected(self, state) -> None:
         self._presence_enabled = state.user_settings.get("presence_enabled", True)
+        logger.debug(
+            "Sitzung aktiv: Status %s, presence_enabled %s, Leerlauf %s, Offline-Schwelle %s s",
+            self._settings.forced_status, self._presence_enabled, self._idle_watcher.is_idle, state.offline_threshold,
+        )
         self._sync_invisible_setting()
         self._start_pinging()
         self._emit_icon_status()
@@ -63,6 +69,7 @@ class PresenceCoordinator:
     def note_server_presence(self, status: str) -> None:
         """Own aggregated presence from a presence event or ping response."""
         if status != self._server_status:
+            logger.debug("Server-Praesenz: %s -> %s", self._server_status, status)
             self._server_status = status
             self._emit_icon_status()
 
@@ -89,6 +96,7 @@ class PresenceCoordinator:
         """Re-evaluate after a local change: pushes the invisible-mode
         setting if it differs from the server's, and pings immediately
         instead of waiting for the next minute tick."""
+        logger.debug("Neubewertung: Status %s, Leerlauf %s", self._settings.forced_status, self._idle_watcher.is_idle)
         self._sync_invisible_setting()
         self._ping()
 
@@ -152,19 +160,34 @@ class PresenceCoordinator:
     def _ping(self) -> None:
         api, state = self._worker.api, self._worker.state
         if api is None or state is None:
+            logger.debug("Ping uebersprungen: nicht verbunden")
             return
         status, new_user_input = self._report_status()
         user_id, offline_after = state.user_id, state.offline_threshold
 
         def push() -> None:
+            started = time.monotonic()
             try:
                 body = api.update_presence(status, new_user_input)
             except zulip_api.ApiError as exc:
                 logger.warning("Praesenz-Ping fehlgeschlagen: %s", exc)
                 return
             own = zulip_api.own_presence_from_response(body, user_id, offline_after)
+            logger.debug(
+                "Ping %s: %.0f ms, eigener Eintrag %s, Serverzeit %s, ergibt %s", status,
+                (time.monotonic() - started) * 1000, (body.get("presences") or {}).get(str(user_id)),
+                body.get("server_timestamp"), own,
+            )
             if own:
                 run_on_main(self.note_server_presence, own)
+            # The server sends presence events only when someone's status
+            # changes, not for every ping (confirmed live: own events only on
+            # idle -> active), so without this everyone who stays active drops
+            # to offline in the DM menu after the 140 s threshold. The ping
+            # response carries all users, as the web client relies on too.
+            presences = body.get("presences")
+            if presences:
+                run_on_main(self.presences_received.emit, {"type": "presence", "presences": presences})
 
         spawn(push, name="presence-ping")
 
@@ -173,4 +196,5 @@ class PresenceCoordinator:
             icon = "invisible"
         else:
             icon = _ICON_FOR_PRESENCE.get(self._server_status, "offline")
+        logger.debug("Icon-Status aus Praesenz: %s", icon)
         self.status_applied.emit(icon)

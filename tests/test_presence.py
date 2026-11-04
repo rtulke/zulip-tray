@@ -1,5 +1,6 @@
 from conftest import flush_main_loop
 
+from zulip_tray.contacts import ContactBook
 from zulip_tray.presence import PresenceCoordinator
 from zulip_tray.worker import SessionState
 
@@ -60,6 +61,25 @@ def test_report_status_mapping():
     settings.forced_status = "auto"
     idle.is_idle = True
     assert pc._report_status() == ("active", True)
+
+
+def test_ping_response_keeps_others_presence_current_in_contact_book():
+    # No presence event arrives while someone stays active, so only the ping
+    # response keeps them from going stale in the DM menu.
+    worker = FakeWorker()
+    book = ContactBook(own_user_id=7, offline_threshold=140)
+    book._add_person({"user_id": 8, "full_name": "Alice"})
+    book.apply_event({"type": "presence", "presences": {"8": {"active_timestamp": 1000}}})
+    assert book.contacts([8], now=1200)[0].status == "offline"
+
+    worker.api.update_presence = lambda *_args: {
+        "server_timestamp": 1200, "presences": {"8": {"active_timestamp": 1190}},
+    }
+    pc = PresenceCoordinator(Settings(), worker, Idle())
+    pc.presences_received.connect(book.apply_event)
+    pc._ping()
+    wait_threads()
+    assert book.contacts([8], now=1200)[0].status == "active"
 
 
 def test_icon_follows_server_and_invisible_mode():

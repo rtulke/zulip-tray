@@ -248,6 +248,16 @@ class SettingsDialog(Gtk.Dialog):
             _row(recent_hint),
         ])
 
+        # --- diagnostics ---------------------------------------------------------------
+        self._debug_log_switch = Gtk.Switch(active=settings.debug_log_enabled)
+        debug_log_hint = _label(tr("settings.debug_log_hint"))
+        debug_log_hint.set_selectable(True)  # holds the journalctl command to copy
+        debug_log_hint.get_style_context().add_class("dim-label")
+        diagnostics_card = _boxed_list([
+            _row(_label(tr("settings.debug_log")), self._debug_log_switch),
+            _row(debug_log_hint, expand_last=True),
+        ])
+
         # --- layout ---------------------------------------------------------------------
         stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.NONE, hexpand=True, vexpand=True)
         for name, label, page in [
@@ -259,6 +269,8 @@ class SettingsDialog(Gtk.Dialog):
             ("colors", tr("settings.section_colors"), _page(tr("settings.section_colors"), colors_card)),
             ("favorites", tr("settings.section_direct_messages"),
              _page(tr("settings.section_direct_messages"), recent_card, favorites_card)),
+            ("diagnostics", tr("settings.category_diagnostics"),
+             _page(tr("settings.category_diagnostics"), diagnostics_card)),
         ]:
             stack.add_titled(page, name, label)
         self._stack = stack
@@ -354,6 +366,7 @@ class SettingsDialog(Gtk.Dialog):
                 and self._on_set_chat_color_scheme is not None):
             self._on_set_chat_color_scheme(chat_scheme)
         settings.recent_range = self._recent_combo.get_active_id() or "week"
+        settings.debug_log_enabled = self._debug_log_switch.get_active()
         if self._favorite_checks:
             settings.favorite_user_ids = [uid for uid, check in self._favorite_checks.items() if check.get_active()]
         settings.save()

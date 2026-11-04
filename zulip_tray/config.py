@@ -86,6 +86,10 @@ DEFAULT_SETTINGS = {
         # below the favorites.
         "recent_range": "week",
     },
+    "diagnostics": {
+        # Connection, presence and icon timeline in the journal (debug_log.py).
+        "debug_log": False,
+    },
 }
 
 
@@ -358,6 +362,16 @@ class UserSettings:
     @recent_range.setter
     def recent_range(self, value: str) -> None:
         self._data["contacts"]["recent_range"] = value if value in RECENT_RANGES else "week"
+
+    # --- diagnostics -----------------------------------------------------------
+
+    @property
+    def debug_log_enabled(self) -> bool:
+        return self._data["diagnostics"]["debug_log"] is True
+
+    @debug_log_enabled.setter
+    def debug_log_enabled(self, value: bool) -> None:
+        self._data["diagnostics"]["debug_log"] = bool(value)
 
 
 def effective_admin_config(settings: UserSettings) -> AdminConfig:

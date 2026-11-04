@@ -86,6 +86,7 @@ class TrayController:
         self._on_open_settings = on_open_settings  # (page name or None)
         self._state = ConnectionState.DISCONNECTED
         self._presence_status = "offline"
+        self._shown_status = "offline"  # what the indicator was last told; only for the diagnostic log
         self._unread: dict[str, _Unread] = {}  # conversation key -> entry, insertion-ordered
         self._blink_visible = False
         self._blink_timer: int | None = None
@@ -508,7 +509,11 @@ class TrayController:
         return self._presence_status if self._state == ConnectionState.CONNECTED else "offline"
 
     def _refresh_icon(self) -> None:
-        self._indicator.set_icon_full(icon_name(self._current_status_key(), self._blink_visible), "Zulip")
+        status = self._current_status_key()
+        if status != self._shown_status:
+            logger.debug("Tray-Icon: %s -> %s (Verbindung %s)", self._shown_status, status, self._state.name)
+            self._shown_status = status
+        self._indicator.set_icon_full(icon_name(status, self._blink_visible), "Zulip")
 
     # --- menu / title ------------------------------------------------------------
 

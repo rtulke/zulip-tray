@@ -95,3 +95,12 @@ def test_favorites_roundtrip_and_validation(tmp_path):
     data["contacts"]["favorites"] = [3, "x", True, None]
     path.write_text(json.dumps(data))
     assert config.UserSettings.load(path).favorite_user_ids == [3]
+
+
+def test_debug_log_is_off_by_default_and_persists(tmp_path):
+    path = tmp_path / "settings.json"
+    s = config.UserSettings.load(path)
+    assert s.debug_log_enabled is False
+    s.debug_log_enabled = True
+    s.save()
+    assert config.UserSettings.load(path).debug_log_enabled is True

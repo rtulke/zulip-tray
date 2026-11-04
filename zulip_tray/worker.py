@@ -122,11 +122,13 @@ class ZulipWorker(threading.Thread):
             try:
                 self._run_one_session()
             except _AuthFailure as exc:
+                logger.debug("Anmeldung abgelehnt, naechster Versuch in %.0f s: %s", AUTH_RETRY_SECONDS, exc)
                 self.auth_failed.emit_from_thread(str(exc))
                 if self._sleep_interruptible(AUTH_RETRY_SECONDS):
                     return
                 continue
             except zulip_api.ApiError as exc:
+                logger.debug("Verbindung beendet (%s): %s", exc.code, exc)
                 self.disconnected.emit_from_thread(str(exc))
             except Exception as exc:  # noqa: BLE001 - last-resort guard for a background thread
                 logger.exception("Unerwarteter Fehler im Zulip-Worker")
@@ -141,6 +143,7 @@ class ZulipWorker(threading.Thread):
 
             delay = random.uniform(0, min(BACKOFF_CAP_SECONDS, self._backoff))
             self._backoff = min(BACKOFF_CAP_SECONDS, self._backoff * 2)
+            logger.debug("Neuer Verbindungsversuch in %.1f s", delay)
             self.reconnect_scheduled.emit_from_thread(delay)
             if self._sleep_interruptible(delay):
                 return
@@ -158,6 +161,8 @@ class ZulipWorker(threading.Thread):
             raise _AuthFailure("Keine Anmeldedaten hinterlegt")
         email, api_key = credentials
         api = zulip_api.ZulipApi(self._server_url, email, api_key, self._verify_ssl)
+        started = time.monotonic()
+        logger.debug("Verbinde mit %s", self._server_url)
 
         try:
             me = api.get_me()
@@ -177,6 +182,7 @@ class ZulipWorker(threading.Thread):
         state.longpoll_timeout = registration.get(
             "event_queue_longpoll_timeout_seconds", zulip_api.DEFAULT_LONGPOLL_TIMEOUT_SECONDS,
         )
+        logger.debug("users/me und register fertig nach %.2f s", time.monotonic() - started)
         queue_id = registration["queue_id"]
         last_event_id = registration["last_event_id"]
         contacts = ContactBook.from_registration(registration, state.user_id, state.offline_threshold)
@@ -193,10 +199,12 @@ class ZulipWorker(threading.Thread):
         self._queue_id = queue_id
         self.state = state
         self.api = api
+        logger.debug("Verbunden nach %.2f s", time.monotonic() - started)
         self.connected.emit_from_thread(state)
         self.unread_synced.emit_from_thread(notifications.unread_snapshot_from(registration.get("unread_msgs")))
         self.contacts_loaded.emit_from_thread(contacts)
         own_status = zulip_api.own_presence_from_response(registration, state.user_id, state.offline_threshold)
+        logger.debug("Eigene Praesenz laut register: %s", own_status)
         if own_status:
             self.own_presence.emit_from_thread(own_status)
         try:
@@ -232,9 +240,9 @@ class ZulipWorker(threading.Thread):
             # tolerates ordinary clock skew.
             entry = (event.get("presences") or {}).get(str(state.user_id))
             if entry is not None:
-                self.own_presence.emit_from_thread(
-                    zulip_api.presence_status(entry, time.time(), state.offline_threshold)
-                )
+                own_status = zulip_api.presence_status(entry, time.time(), state.offline_threshold)
+                logger.debug("Eigenes Praesenz-Event: %s ergibt %s", entry, own_status)
+                self.own_presence.emit_from_thread(own_status)
         elif kind == "user_settings" and event.get("op") == "update":
             prop, value = event.get("property"), event.get("value")
             if prop:

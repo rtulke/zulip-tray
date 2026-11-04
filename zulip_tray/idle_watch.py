@@ -76,6 +76,8 @@ class IdleWatcher:
             return
         idle_ms = result.unpack()[0]
         now_idle = idle_ms >= self._threshold_ms
+        if now_idle != self._is_idle:
+            logger.debug("Leerlauf: %s (seit %.0f s ohne Eingabe)", now_idle, idle_ms / 1000)
         if now_idle and not self._is_idle:
             self._is_idle = True
             self.became_idle.emit()

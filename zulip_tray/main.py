@@ -12,7 +12,7 @@ from gi.repository import Gio, GLib, Gtk  # noqa: E402
 
 import urllib3  # noqa: E402
 
-from . import appearance, auth, autostart, i18n, keyring, zulip_api  # noqa: E402
+from . import appearance, auth, autostart, debug_log, i18n, keyring, zulip_api  # noqa: E402
 from .about_dialog import show_about  # noqa: E402
 from .config import ConfigError, UserSettings, effective_admin_config  # noqa: E402
 from .deeplink import RoomOpener, open_url_default  # noqa: E402
@@ -95,6 +95,7 @@ class ZulipTrayApplication(Gtk.Application):
 
     def _bootstrap(self) -> None:
         self.settings = UserSettings.load()
+        debug_log.configure(self.settings.debug_log_enabled)
         # Before the first tr(): every label is built in this language.
         i18n.set_language(self.settings.language)
         # Before any window exists, so even the config-error dialog below
@@ -159,6 +160,7 @@ class ZulipTrayApplication(Gtk.Application):
         worker.contact_event.connect(self.tray.apply_contact_event)
         self.presence.status_applied.connect(self.tray.set_presence_status)
         self.presence.forced_status_changed.connect(self.tray.set_forced_status)
+        self.presence.presences_received.connect(self.tray.apply_contact_event)
         self.idle_watcher.became_idle.connect(self.presence.apply)
         self.idle_watcher.became_active.connect(self.presence.apply)
 
@@ -245,6 +247,7 @@ class ZulipTrayApplication(Gtk.Application):
 
         def on_response(_dialog, response_id: int) -> None:
             if response_id == Gtk.ResponseType.OK:
+                debug_log.configure(self.settings.debug_log_enabled)
                 self.idle_watcher.set_threshold_minutes(self.settings.idle_threshold_minutes)
                 self.idle_watcher.set_enabled(self.settings.idle_detection_enabled)
                 self.presence.apply()
