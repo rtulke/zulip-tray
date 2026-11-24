@@ -34,6 +34,16 @@ RECENCY_HEADER_KEYS = {
     "older": "tray.contacts_older",
 }
 INDICATOR_ID = "zulip-tray"
+# GNOME's AppIndicator extension can miss an icon change while the shell is
+# still starting: confirmed live at login on 2026-11-16, where the item
+# offered zulip-tray-online over D-Bus for 10+ minutes while the panel kept
+# the grey start icon, until the next real change fixed it. set_icon_full
+# emits NewIcon only when the name or the description differs (verified with
+# dbus-monitor), so a re-announcement flips an invisible zero-width space on
+# the description; the extension then re-reads all icon properties. A few
+# times soon after start, then once a minute.
+ICON_REANNOUNCE_EARLY_SECONDS = (5, 15, 30)
+ICON_REANNOUNCE_SECONDS = 60
 
 STATUS_LABEL_KEYS = {
     "auto": "tray.status_auto",
@@ -87,6 +97,7 @@ class TrayController:
         self._state = ConnectionState.DISCONNECTED
         self._presence_status = "offline"
         self._shown_status = "offline"  # what the indicator was last told; only for the diagnostic log
+        self._icon_desc_flip = False  # see ICON_REANNOUNCE_SECONDS
         self._unread: dict[str, _Unread] = {}  # conversation key -> entry, insertion-ordered
         self._blink_visible = False
         self._blink_timer: int | None = None
@@ -107,6 +118,9 @@ class TrayController:
         # system icon theme -- point the indicator's own theme path there.
         self._indicator.set_icon_theme_path(str(ICON_DIR))
         self._indicator.set_status(AppIndicator.IndicatorStatus.ACTIVE)
+        for delay in ICON_REANNOUNCE_EARLY_SECONDS:
+            GLib.timeout_add_seconds(delay, self._reannounce_icon, False)
+        GLib.timeout_add_seconds(ICON_REANNOUNCE_SECONDS, self._reannounce_icon, True)
 
         menu = Gtk.Menu()
         self._status_item = Gtk.MenuItem(label=tr("tray.disconnected"))
@@ -503,6 +517,12 @@ class TrayController:
         self._refresh_icon()
         return True
 
+    def _reannounce_icon(self, repeat: bool) -> bool:
+        if self._blink_timer is None:  # while blinking the icon changes anyway
+            self._icon_desc_flip = not self._icon_desc_flip
+            self._refresh_icon()
+        return repeat
+
     def _current_status_key(self) -> str:
         # Any not-fully-connected state shows as grey regardless of the
         # last presence seen.
@@ -513,7 +533,8 @@ class TrayController:
         if status != self._shown_status:
             logger.debug("Tray-Icon: %s -> %s (Verbindung %s)", self._shown_status, status, self._state.name)
             self._shown_status = status
-        self._indicator.set_icon_full(icon_name(status, self._blink_visible), "Zulip")
+        desc = "Zulip\u200b" if self._icon_desc_flip else "Zulip"
+        self._indicator.set_icon_full(icon_name(status, self._blink_visible), desc)
 
     # --- menu / title ------------------------------------------------------------
 
