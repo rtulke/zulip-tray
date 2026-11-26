@@ -36,7 +36,9 @@ class Signal:
         self._handlers.append(handler)
 
     def disconnect(self, handler: Callable) -> None:
-        self._handlers = [h for h in self._handlers if h is not handler]
+        # ==, not `is`: every `obj.method` access builds a new bound-method
+        # object, so identity would never find the one that was connected.
+        self._handlers = [h for h in self._handlers if h != handler]
 
     def emit(self, *args) -> None:
         for handler in list(self._handlers):
